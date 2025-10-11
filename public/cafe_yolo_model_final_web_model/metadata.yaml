@@ -1,0 +1,33 @@
+description: Ultralytics cafe_YOLO_model_final model trained on /content/drive/MyDrive/dataset_cafe_enfermedades/data.yaml
+author: Ultralytics
+date: '2025-10-05T18:38:46.436042'
+version: 8.3.205
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: detect
+batch: 1
+imgsz:
+- 640
+- 640
+names:
+  0: DeficienciaNutricional-Boro
+  1: DeficienciaNutricional-Calcio
+  2: DeficienciaNutricional-Fosforo
+  3: DeficienciaNutricional-Hierro
+  4: DeficienciaNutricional-Magnesio
+  5: DeficienciaNutricional-Manganeso
+  6: DeficienciaNutricional-Nitrogeno
+  7: DeficienciaNutricional-Potasio
+  8: Enfermedad-Antracnosis
+  9: Enfermedad-Mancha-de-hierro
+  10: Enfermedad-Roya
+  11: Plaga-AranaRoja
+  12: Plaga-Minador
+  13: Sanas
+args:
+  batch: 1
+  half: false
+  int8: false
+  nms: false
+channels: 3
