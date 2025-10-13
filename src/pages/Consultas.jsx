@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Home as HomeIcon, MessageSquare, Menu, Sun, Moon, Bell, User, Send, Loader2, Sparkles } from 'lucide-react';
+import { Home as HomeIcon, MessageSquare, Menu, Sun, Moon, User, Send, Loader2, Sparkles, CalendarDays, Clock } from 'lucide-react';
 import logo from '../assets/rumileaf.png';
 import Spline from '@splinetool/react-spline';
 import '../styles/animations.css';
+import Sidebar from '../components/Sidebar';
 
 /*
 Página: Consultas
@@ -209,7 +210,7 @@ const MessageBubble = ({ message, isUser }) => {
 
 // Página de consultas con chat IA (Gemini) y panel lateral informativo
 export default function Consultas() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showWelcome, setShowWelcome] = useState(true);
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -219,6 +220,7 @@ export default function Consultas() {
   }, []);
   const [currentTime, setCurrentTime] = useState(new Date());
   const navigate = useNavigate();
+  const loggedUser = localStorage.getItem('rumileaf_user') || 'Usuario';
   const messagesEndRef = useRef(null);
 
   // Tema (claro/oscuro) persistente
@@ -297,87 +299,19 @@ export default function Consultas() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 via-emerald-50 to-green-100 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800">
-      {/* Sidebar */}
-      <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 fixed inset-y-0 left-0 z-50 w-72 bg-gradient-to-b from-green-900 via-green-800 to-green-700 text-white transition-all duration-300 ease-in-out shadow-2xl`}>
-        <div className="flex flex-col h-full">
-          <div className="p-8 text-center border-b border-green-600/30">
-            <div className="flex justify-center mb-6">
-              <div className="w-28 h-28 bg-white rounded-2xl flex items-center justify-center overflow-hidden shadow-xl ring-4 ring-green-200">
-                <img 
-                  src={logo}
-                  alt="RumiLeaf Logo" 
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            </div>
-            <h2 className="text-xl font-bold bg-gradient-to-r from-white to-green-200 bg-clip-text text-transparent">
-              Bienvenido a<br />
-              <span className="text-2xl">RumiLeaf</span>
-            </h2>
-            <p className="text-green-200 text-sm mt-2">Análisis inteligente de plantas</p>
-          </div>
-
-          <nav className="flex-1 p-6 space-y-3">
-            <button onClick={() => navigate('/')} className="w-full flex items-center space-x-4 px-6 py-4 rounded-xl hover:bg-green-700/50 transition-all duration-200 border border-green-600/20">
-              <HomeIcon size={24} className="text-green-200" />
-              <span className="text-lg font-medium">Inicio</span>
-            </button>
-            <button className="w-full flex items-center space-x-4 px-6 py-4 rounded-xl bg-green-700/30 border border-green-600/20">
-              <MessageSquare size={24} className="text-green-200" />
-              <span className="text-lg font-medium">Consultas</span>
-            </button>
-            <div className="w-full p-4 rounded-xl bg-green-700/30 border border-green-600/20">
-              <p className="text-sm text-green-200 mb-3 font-medium">Tema</p>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => setTheme('light')}
-                  className={`flex items-center justify-center space-x-2 py-2.5 px-3 rounded-lg font-semibold transition-all duration-200 ${
-                    theme === 'light'
-                      ? 'bg-white text-green-700 shadow-lg'
-                      : 'bg-green-800/40 text-green-200 hover:bg-green-800/60'
-                  }`}
-                  aria-label="Tema claro"
-                  title="Tema claro"
-                >
-                  <Sun size={18} />
-                  <span className="text-sm">Claro</span>
-                </button>
-                <button
-                  onClick={() => setTheme('dark')}
-                  className={`flex items-center justify-center space-x-2 py-2.5 px-3 rounded-lg font-semibold transition-all duration-200 ${
-                    theme === 'dark'
-                      ? 'bg-white text-green-700 shadow-lg'
-                      : 'bg-green-800/40 text-green-200 hover:bg-green-800/60'
-                  }`}
-                  aria-label="Tema oscuro"
-                  title="Tema oscuro"
-                >
-                  <Moon size={18} />
-                  <span className="text-sm">Oscuro</span>
-                </button>
-              </div>
-            </div>
-          </nav>
-
-          <div className="p-6 border-t border-green-600/30">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center">
-                <User size={20} />
-              </div>
-              <div>
-                <p className="font-medium">Usuario</p>
-                <p className="text-green-200 text-sm">Administrador</p>
-              </div>
-            </div>
-          </div>
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-green-50 via-emerald-50 to-green-100 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800 flex w-screen overflow-x-hidden">
+      {/* Sidebar fijo */}
+      <div className={`fixed inset-y-0 left-0 z-50 transition-all duration-300 ease-in-out ${sidebarOpen ? 'w-64' : 'w-20'}`}>
+        <Sidebar active="consultas" theme={theme} setTheme={setTheme} sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
       </div>
 
       {/* Main Content */}
-      <div className="lg:ml-72 flex flex-col min-h-screen">
-        <header className="bg-white/80 dark:bg-gray-900/60 backdrop-blur-sm border-b border-green-200/50 dark:border-green-700/50 shadow-sm">
-          <div className="px-6 py-4 flex items-center justify-between">
+      <div id="main-content"
+        className="flex flex-col min-h-screen transition-all duration-500 ease-in-out w-full overflow-y-auto"
+        style={{ paddingLeft: sidebarOpen ? '18rem' : '5rem', transition: 'padding-left 0.5s cubic-bezier(0.4,0,0.2,1)' }}
+      >
+        <header className="sticky top-0 z-30 bg-white/80 dark:bg-gray-900/60 backdrop-blur-sm border-b border-green-200/50 dark:border-green-700/50 shadow-sm">
+          <div className="px-6 py-3 flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <button 
                 className="lg:hidden p-2 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors"
@@ -390,17 +324,34 @@ export default function Consultas() {
                 <p className="text-green-600 text-sm dark:text-green-300">Diagnóstico y recomendaciones personalizadas</p>
               </div>
             </div>
+            
             <div className="flex items-center space-x-4">
+              <button
+                onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+                className="p-2 rounded-lg hover:bg-green-100 dark:hover:bg-gray-700 transition-colors"
+                title="Cambiar tema"
+              >
+                {theme === 'light' ? <Moon size={20} className="text-green-700" /> : <Sun size={20} className="text-green-200" />}
+              </button>
+
+              <div className="hidden lg:block w-px h-8 bg-green-200 dark:bg-green-700/50"></div>
+
+              <div className="group relative hidden lg:flex items-center space-x-3">
+                <div className="w-10 h-10 bg-green-100 dark:bg-green-900/40 rounded-full flex items-center justify-center ring-2 ring-green-200 dark:ring-green-700">
+                  <User size={20} className="text-green-600 dark:text-green-300" />
+                </div>
+                <div className="absolute right-0 top-full mt-2 bg-white dark:bg-gray-800 shadow-lg border border-green-200 dark:border-green-700 rounded-lg px-4 py-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                  <p className="font-semibold text-sm text-green-700 dark:text-green-200 text-center">Administrador</p>
+                </div>
+              </div>
               <div className="flex items-center space-x-2 bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200 px-4 py-2 rounded-lg">
-                <span className="text-lg">📅</span>
+                <CalendarDays size={16} className="text-green-600 dark:text-green-300" />
                 <span className="text-sm font-medium">{formatDate(currentTime)}</span>
               </div>
-              <div className="bg-green-500 dark:bg-green-600 text-white px-4 py-2 rounded-lg">
+              <div className="flex items-center space-x-2 bg-green-500 dark:bg-green-600 text-white px-4 py-2 rounded-lg">
+                <Clock size={16} />
                 <span className="text-sm font-semibold">{formatTime(currentTime)}</span>
               </div>
-              <button className="p-2 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors">
-                <Bell size={20} className="text-green-700 dark:text-green-200" />
-              </button>
             </div>
           </div>
         </header>
@@ -554,52 +505,6 @@ export default function Consultas() {
         </main>
       </div>
 
-      {/* Asistente 3D */}
-      <div>
-        <div style={{
-          position: 'fixed',
-          bottom: '-100px',
-          right: '-50px',
-          width: '500px',
-          height: '500px',
-          zIndex: 1000,
-          pointerEvents: 'none',
-          transform: 'perspective(1000px) rotateX(10deg)',
-        }}>
-          {showWelcome && (
-            <div style={{
-              position: 'absolute',
-              top: '60px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              background: 'linear-gradient(135deg, #e7191f, #ff4757)',
-              padding: '10px 20px',
-              borderRadius: '20px',
-              color: 'white',
-              fontSize: '16px',
-              fontWeight: 'bold',
-              boxShadow: '0 4px 15px rgba(231, 25, 31, 0.3)',
-              animation: 'fadeInOut 5s forwards',
-              whiteSpace: 'nowrap',
-              zIndex: 1001,
-            }}>
-              ¡Bienvenidos a Rumisoft!
-            </div>
-          )}
-          <div style={{
-            width: '100%',
-            height: '100%',
-            pointerEvents: 'auto',
-            animation: 'floatRobot 6s ease-in-out infinite',
-            transformStyle: 'preserve-3d',
-            filter: 'drop-shadow(0 0 4px #ffffff) drop-shadow(0 0 8px #ffffff)',
-          }}>
-            <Spline 
-              scene="https://prod.spline.design/RR80lTKZpn7-P5zd/scene.splinecode"
-            />
-          </div>
-        </div>
-      </div>
 
       {/* Overlay for mobile sidebar */}
       {sidebarOpen && (

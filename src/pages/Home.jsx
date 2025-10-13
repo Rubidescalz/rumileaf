@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Home, MessageSquare, Menu, Camera, Image, Sun, Moon, User, Upload, Play, Square, AlertCircle, TrendingUp, Zap, CheckCircle, Loader2, Activity, BarChart3, Timer } from 'lucide-react';
+import { Home, MessageSquare, Menu, Camera, Image, Sun, Moon, User, Upload, Play, Square, AlertCircle, TrendingUp, Zap, CheckCircle, Loader2, Activity, BarChart3, Timer, CalendarDays, Clock } from 'lucide-react';
 import * as tf from '@tensorflow/tfjs';
 import { useNavigate } from 'react-router-dom';
 
@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import logo from '../assets/rumileaf.png';
 import Spline from '@splinetool/react-spline';
 import '../styles/animations.css';
+import Sidebar from '../components/Sidebar';
 
 // --- CONFIGURACIÓN DEL MODELO ---
 const MODEL_PATH = '/cafe_yolo_model_final_web_model/model.json';
@@ -145,12 +146,13 @@ const CLASS_INFO = {
 // ejecución de inferencia y renderizado del panel (UI, métricas y resultados).
 export default function App() {
   const [activeTab, setActiveTab] = useState('camara');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [model, setModel] = useState(null);
   const [isModelLoading, setIsModelLoading] = useState(true); // Inicia como true
   const [modelError, setModelError] = useState(null); // Nuevo estado para error de carga
   const [isDetecting, setIsDetecting] = useState(false);
+  const [deteccionFinalizada, setDeteccionFinalizada] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [detections, setDetections] = useState([]);
   const [analysisCount, setAnalysisCount] = useState(0);
@@ -187,6 +189,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, []);
   const navigate = useNavigate();
+  const loggedUser = localStorage.getItem('rumileaf_user') || 'Usuario';
   
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -281,6 +284,13 @@ export default function App() {
       cameraStream.getTracks().forEach(track => track.stop());
       setCameraStream(null);
       setIsDetecting(false);
+      setDeteccionFinalizada(false);
+      setDetections([]);
+      // Limpiar canvas
+      if (canvasRef.current) {
+        const ctx = canvasRef.current.getContext('2d');
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      }
     }
   };
 
@@ -313,10 +323,16 @@ export default function App() {
     const boxes = [];
     const scores = [];
     const classIds = [];
-    // Nota: El código de procesamiento de salida es sensible al formato exacto del modelo.
-    // Asumo que el código original funciona con tu modelo específico [1, 18, 8400].
-    
-    const outputData = output.dataSync();
+    // Extraer datos del tensor de salida
+    let outputData;
+    if (output instanceof tf.Tensor) {
+      outputData = output.dataSync();
+    } else if (Array.isArray(output)) {
+      // Si el modelo devuelve un array de tensores, tomar el primero
+      outputData = output[0].dataSync();
+    } else {
+      throw new Error('Formato de salida de modelo no soportado');
+    }
     const numDetections = 8400; // anchors típicos de YOLO v8
     const numClasses = 14;
 
@@ -349,6 +365,10 @@ export default function App() {
       }
     }
     
+    // Prevent error if no detections
+    if (boxes.length === 0) {
+      return [];
+    }
     // Aplicar NMS (corrige orden de parámetros y libera tensores intermedios)
     const boxesTensor = tf.tensor2d(boxes.map(box => [box[1], box[0], box[1] + box[3], box[0] + box[2]]));
     const scoresTensor = tf.tensor1d(scores);
@@ -480,7 +500,7 @@ export default function App() {
   // Detectar en tiempo real
   // Bucle con requestAnimationFrame condicionado por isDetecting y la pestaña activa; actualiza métricas y canvas.
   const detectFrame = async () => {
-    if (!model || !videoRef.current || !isDetecting || activeTab !== 'camara') {
+    if (!model || !videoRef.current || !isDetecting || activeTab !== 'camara' || !cameraStream || deteccionFinalizada) {
       return;
     }
 
@@ -491,8 +511,20 @@ export default function App() {
     setDetections(predictions);
     drawDetections(predictions, videoRef.current);
 
-    // Solo continuar la detección si sigue activo
-    if (isDetecting && activeTab === 'camara') {
+    // Si se detecta una plaga (cualquier clase distinta de 'Sanas'), detener detección
+    const plagaDetectada = predictions.some(d => CLASS_NAMES[d.class] !== 'Sanas');
+    if (plagaDetectada) {
+      setDeteccionFinalizada(true);
+      setIsDetecting(false);
+      return;
+    }
+    // Si no se detecta nada, mostrar notificación
+    if (predictions.length === 0) {
+      showToast('¡Ups! No pudimos identificar ninguna hoja ni plaga en esta toma. Intenta acercar la hoja, enfocar bien y asegúrate de tener buena luz. ¡Tú puedes lograrlo! 🌱✨', 'warning');
+    }
+
+    // Solo continuar la detección si sigue activo y la cámara está activa
+    if (isDetecting && activeTab === 'camara' && cameraStream) {
       requestAnimationFrame(detectFrame);
     }
   };
@@ -562,28 +594,21 @@ export default function App() {
   };
 
   // Cambio de tab
-  // Inicia/detiene la cámara según el modo (camara/imagen) y limpia el canvas si no hay imagen cargada.
+  // Detiene la cámara y análisis si se cambia a imagen
   useEffect(() => {
-    const handleTabChange = async () => {
-      if (activeTab === 'camara') {
-        setDetections([]);
-        if (!cameraStream) {
-          await startCamera();
-        }
-      } else {
-        stopCamera();
-        // Limpiar canvas para el modo imagen si no hay imagen
-        if (canvasRef.current && !uploadedImage) {
-            const ctx = canvasRef.current.getContext('2d');
-            ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-        }
+    if (activeTab !== 'camara') {
+      stopCamera();
+      setIsDetecting(false);
+      // Limpiar canvas para el modo imagen si no hay imagen
+      if (canvasRef.current && !uploadedImage) {
+        const ctx = canvasRef.current.getContext('2d');
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
       }
-    };
-    
-    handleTabChange();
-    
+    }
+    // No iniciar la cámara automáticamente
     return () => {
       stopCamera();
+      setIsDetecting(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
@@ -777,89 +802,21 @@ export default function App() {
   };
   // --- Fin Componente de Resultados Mejorado ---
 
-
+  // Main JSX return
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-green-100 dark:from-gray-900 dark:to-gray-800">
-      {/* Sidebar (Mantenida) */}
-      <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 fixed inset-y-0 left-0 z-50 w-72 bg-gradient-to-b from-green-900 via-green-800 to-green-700 text-white transition-all duration-300 ease-in-out shadow-2xl`}>
-        <div className="flex flex-col h-full">
-          <div className="p-8 text-center border-b border-green-600/30">
-            <div className="flex justify-center mb-6">
-              <div className="w-28 h-28 bg-white rounded-2xl flex items-center justify-center overflow-hidden shadow-xl ring-4 ring-green-200">
-                <img 
-                  src={logo}
-                  alt="RumiLeaf Logo" 
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            </div>
-            <h2 className="text-xl font-bold bg-gradient-to-r from-white to-green-200 bg-clip-text text-transparent">
-              Bienvenido a<br />
-              <span className="text-2xl">RumiLeaf</span>
-            </h2>
-            <p className="text-green-200 text-sm mt-2">Análisis inteligente de plantas</p>
-          </div>
-
-          <nav className="flex-1 p-6 space-y-3">
-            <button className="w-full flex items-center space-x-4 px-6 py-4 rounded-xl hover:bg-green-700/50 transition-all duration-200 mb-4 bg-green-700/30 border border-green-600/20">
-              <Home size={24} className="text-green-200" />
-              <span className="text-lg font-medium">Inicio</span>
-            </button>
-            <button onClick={handleNavigateConsultas} className="w-full flex items-center space-x-4 px-6 py-4 rounded-xl hover:bg-green-700/50 transition-all duration-200 border border-green-600/20">
-              <MessageSquare size={24} className="text-green-200" />
-              <span className="text-lg font-medium">Consultas</span>
-            </button>
-            <div className="w-full p-4 rounded-xl bg-green-700/30 border border-green-600/20">
-              <p className="text-sm text-green-200 mb-3 font-medium">Tema</p>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => setTheme('light')}
-                  className={`flex items-center justify-center space-x-2 py-2.5 px-3 rounded-lg font-semibold transition-all duration-200 ${
-                    theme === 'light'
-                      ? 'bg-white text-green-700 shadow-lg'
-                      : 'bg-green-800/40 text-green-200 hover:bg-green-800/60'
-                  }`}
-                  aria-label="Tema claro"
-                  title="Tema claro"
-                >
-                  <Sun size={18} />
-                  <span className="text-sm">Claro</span>
-                </button>
-                <button
-                  onClick={() => setTheme('dark')}
-                  className={`flex items-center justify-center space-x-2 py-2.5 px-3 rounded-lg font-semibold transition-all duration-200 ${
-                    theme === 'dark'
-                      ? 'bg-white text-green-700 shadow-lg'
-                      : 'bg-green-800/40 text-green-200 hover:bg-green-800/60'
-                  }`}
-                  aria-label="Tema oscuro"
-                  title="Tema oscuro"
-                >
-                  <Moon size={18} />
-                  <span className="text-sm">Oscuro</span>
-                </button>
-              </div>
-            </div>
-          </nav>
-
-          <div className="p-6 border-t border-green-600/30">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center">
-                <User size={20} />
-              </div>
-              <div>
-                <p className="font-medium">Usuario</p>
-                <p className="text-green-200 text-sm">Administrador</p>
-              </div>
-            </div>
-          </div>
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-green-100 dark:from-gray-900 dark:to-gray-800 flex w-screen overflow-x-hidden">
+      {/* Sidebar fijo */}
+      <div className={`fixed inset-y-0 left-0 z-50 transition-all duration-300 ease-in-out ${sidebarOpen ? 'w-64' : 'w-20'}`}>
+        <Sidebar active="home" theme={theme} setTheme={setTheme} sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
       </div>
 
       {/* Main Content */}
-      <div className="lg:ml-72 flex flex-col min-h-screen">
-        <header className="bg-white/80 dark:bg-gray-900/60 backdrop-blur-sm border-b border-green-200/50 dark:border-green-700/50 shadow-sm">
-          <div className="px-6 py-4 flex items-center justify-between">
+      <div id="main-content"
+        className="flex flex-col min-h-screen bg-transparent transition-all duration-500 ease-in-out w-full overflow-y-auto"
+        style={{ paddingLeft: sidebarOpen ? '18rem' : '5rem', transition: 'padding-left 0.5s cubic-bezier(0.4,0,0.2,1)' }}
+      >
+        <header className="sticky top-0 z-30 bg-white/80 dark:bg-gray-900/60 backdrop-blur-sm border-b border-green-200/50 dark:border-green-700/50 shadow-sm">
+          <div className="px-6 py-3 flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <button 
                 className="lg:hidden p-2 rounded-lg hover:bg-green-100 transition-colors"
@@ -872,16 +829,37 @@ export default function App() {
                 <p className="text-green-600 text-sm dark:text-green-300">Detección de enfermedades en tiempo real</p>
               </div>
             </div>
-            
+
             <div className="flex items-center space-x-4">
+              <button
+                onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+                className="p-2 rounded-lg hover:bg-green-100 dark:hover:bg-gray-700 transition-colors"
+                title="Cambiar tema"
+              >
+                {theme === 'light' ? <Moon size={20} className="text-green-700" /> : <Sun size={20} className="text-green-200" />}
+              </button>
+
+              <div className="hidden lg:block w-px h-8 bg-green-200 dark:bg-green-700/50"></div>
+
+              <div className="group relative hidden lg:flex items-center space-x-3">
+                <div className="w-10 h-10 bg-green-100 dark:bg-green-900/40 rounded-full flex items-center justify-center ring-2 ring-green-200 dark:ring-green-700">
+                  <User size={20} className="text-green-600 dark:text-green-300" />
+                </div>
+                <div className="absolute right-0 top-full mt-2 bg-white dark:bg-gray-800 shadow-lg border border-green-200 dark:border-green-700 rounded-lg px-4 py-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                  <p className="font-semibold text-sm text-green-700 dark:text-green-200 text-center">Administrador</p>
+                </div>
+              </div>
+
+            
               <div className="flex items-center space-x-2 bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200 px-4 py-2 rounded-lg">
-                <span className="text-lg">📅</span>
+                <CalendarDays size={16} className="text-green-600 dark:text-green-300" />
                 <span className="text-sm font-medium">{formatDate(currentTime)}</span>
               </div>
-              <div className="bg-green-500 dark:bg-green-600 text-white px-4 py-2 rounded-lg">
+              <div className="flex items-center space-x-2 bg-green-500 dark:bg-green-600 text-white px-4 py-2 rounded-lg">
+                <Clock size={16} />
                 <span className="text-sm font-semibold">{formatTime(currentTime)}</span>
               </div>
-                          </div>
+            </div>
           </div>
         </header>
 
@@ -1022,15 +1000,8 @@ export default function App() {
                             <button
                               onClick={async () => {
                                 if (cameraStream) {
-                                  // Desactivar cámara
                                   stopCamera();
-                                  setDetections([]);
-                                  if (canvasRef.current) {
-                                    const ctx = canvasRef.current.getContext('2d');
-                                    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-                                  }
                                 } else {
-                                  // Activar cámara
                                   await startCamera();
                                 }
                               }}
@@ -1057,9 +1028,10 @@ export default function App() {
                                   alert('Esperando la carga del modelo...');
                                   return;
                                 }
+                                setDeteccionFinalizada(false);
                                 setIsDetecting(!isDetecting);
                               }}
-                              disabled={!cameraStream || !model || isModelLoading}
+                              disabled={!cameraStream || !model || isModelLoading || deteccionFinalizada}
                               className="w-full mt-3 bg-green-500 hover:bg-green-600 text-white py-3 px-4 rounded-xl font-semibold transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 flex items-center justify-center space-x-2"
                             >
                               {isDetecting ? (
@@ -1111,75 +1083,8 @@ export default function App() {
                         )}
                       </div>
 
-                      {/* Status / Diagnosis */}
-                      <div className="mt-8 p-4 bg-white rounded-xl border border-green-200">
-                        {detections.length > 0 ? (
-                          (() => {
-                            const counts = detections.reduce((acc, det) => {
-                              const name = CLASS_NAMES[det.class];
-                              acc[name] = (acc[name] || 0) + 1;
-                              return acc;
-                            }, {});
-                            const top = Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
-                            const info = CLASS_INFO[top] || {};
-                            const classIndex = CLASS_NAMES.indexOf(top);
-                            const color = CLASS_COLORS[classIndex] || '#16a34a';
-                            return (
-                              <div>
-                                <div className="flex items-start space-x-3">
-                                  <div className="mt-1 w-3 h-3 rounded-full" style={{ backgroundColor: color }}></div>
-                                  <div>
-                                    <p className="text-sm font-semibold text-gray-800">Diagnóstico resumido</p>
-                                    <p className="text-sm text-gray-600 mt-1">
-                                      <span className="font-bold" style={{ color }}>{top}</span>: {info.description || 'Descripción no disponible.'}
-                                    </p>
-                                  </div>
-                                </div>
-                                <button
-                                  onClick={handleNavigateConsultas}
-                                  className="mt-3 inline-flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-green-500 to-emerald-600 text-white text-sm font-semibold shadow hover:from-green-600 hover:to-emerald-700 focus:outline-none"
-                                >
-                                  <MessageSquare size={16} />
-                                  <span>Más consultas</span>
-                                </button>
-                              </div>
-                            );
-                          })()
-                        ) : (
-                          <div>
-                            <div className="flex items-center space-x-2 mb-2">
-                              {isModelLoading && (
-                                <div className="flex items-center space-x-2">
-                                  <div className={`w-3 h-3 rounded-full bg-yellow-500 animate-bounce`}></div>
-                                  <span className="text-sm font-medium text-yellow-700">Cargando Modelo...</span>
-                                </div>
-                              )}
-                              {!isModelLoading && model && (
-                                <div className="flex items-center space-x-2">
-                                  <div className={`w-3 h-3 rounded-full bg-green-500 animate-pulse`}></div>
-                                  <span className="text-sm font-medium text-green-700">Modelo listo</span>
-                                </div>
-                              )}
-                              {modelError && (
-                                <div className="flex items-center space-x-2">
-                                  <div className={`w-3 h-3 rounded-full bg-red-500`}></div>
-                                  <span className="text-sm font-medium text-red-700">Error de Carga</span>
-                                </div>
-                              )}
-                            </div>
-                            <p className="text-xs text-green-600">
-                              {model ? 'Puedes realizar un análisis desde Cámara o Imagen.' : 'Esperando el modelo...'}
-                            </p>
-                            {modelError && (
-                              <p className="text-xs text-red-500 mt-2">{modelError}</p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      
-                      
-                                          </div>
+                      {/* Status / Diagnosis oculto: bloque eliminado completamente */}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1243,52 +1148,6 @@ export default function App() {
         </main>
       </div>
 
-      {/* Asistente 3D */}
-      <div>
-        <div style={{
-          position: 'fixed',
-          bottom: '-100px',
-          right: '-50px',
-          width: '500px',
-          height: '500px',
-          zIndex: 1000,
-          pointerEvents: 'none',
-          transform: 'perspective(1000px) rotateX(10deg)',
-        }}>
-          {showWelcome && (
-            <div style={{
-              position: 'absolute',
-              top: '60px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              background: 'linear-gradient(135deg, #e7191f, #ff4757)',
-              padding: '10px 20px',
-              borderRadius: '20px',
-              color: 'white',
-              fontSize: '16px',
-              fontWeight: 'bold',
-              boxShadow: '0 4px 15px rgba(231, 25, 31, 0.3)',
-              animation: 'fadeInOut 5s forwards',
-              whiteSpace: 'nowrap',
-              zIndex: 1001,
-            }}>
-              ¡Bienvenidos a Rumisoft!
-            </div>
-          )}
-          <div style={{
-            width: '100%',
-            height: '100%',
-            pointerEvents: 'auto',
-            animation: 'floatRobot 6s ease-in-out infinite',
-            transformStyle: 'preserve-3d',
-            filter: 'drop-shadow(0 0 4px #ffffff) drop-shadow(0 0 8px #ffffff)',
-          }}>
-            <Spline 
-              scene="https://prod.spline.design/RR80lTKZpn7-P5zd/scene.splinecode"
-            />
-          </div>
-        </div>
-      </div>
 
       {toast && (
         <div className="fixed top-6 right-6 z-[60]">
@@ -1360,13 +1219,6 @@ export default function App() {
             </div>
           </div>
         </div>
-      )}
-      {/* Overlay for mobile sidebar (Mantenido) */}
-      {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        ></div>
       )}
     </div>
   );
