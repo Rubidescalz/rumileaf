@@ -1,13 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Home, MessageSquare, Menu, Camera, Image, Sun, Moon, User, Upload, Play, Square, AlertCircle, TrendingUp, Zap, CheckCircle, Loader2, Activity, BarChart3, Timer, CalendarDays, Clock } from 'lucide-react';
+import { Camera, Image, Upload, Play, Square, AlertCircle, TrendingUp, Zap, CheckCircle, Loader2, Activity, BarChart3, Timer } from 'lucide-react';
 import * as tf from '@tensorflow/tfjs';
 import { useNavigate } from 'react-router-dom';
+import { db, auth } from '../firebase';
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 
 // Importa tu logo aquí (reemplaza en tu código real)
-import logo from '../assets/rumileaf.png';
-import Spline from '@splinetool/react-spline';
 import '../styles/animations.css';
-import Sidebar from '../components/Sidebar';
+import Panel from '../components/Panel'; // Importamos el nuevo panel
 
 // --- CONFIGURACIÓN DEL MODELO ---
 const MODEL_PATH = '/cafe_yolo_model_final_web_model/model.json';
@@ -41,19 +41,19 @@ const CLASS_COLORS = [
   '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2',
   '#F8B739', '#52B788', '#E63946', '#457B9D', // Enfermedades/Plagas (colores de advertencia)
   '#1D3557', '#06D6A0' // Sanas (verde)
-  ];
-  
-  // Utilidad: convertir color hex a rgba con alfa (para efectos de escaneo)
-  const hexToRgba = (hex, alpha = 1) => {
+];
+
+// Utilidad: convertir color hex a rgba con alfa (para efectos de escaneo)
+const hexToRgba = (hex, alpha = 1) => {
   const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   if (!match) return `rgba(0,0,0,${alpha})`;
   const r = parseInt(match[1], 16);
   const g = parseInt(match[2], 16);
   const b = parseInt(match[3], 16);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  };
-  
-  // Información de contexto (Mejora en los resultados)
+};
+
+// Información de contexto (Mejora en los resultados)
 const CLASS_INFO = {
   'Deficiencia-Boro': {
     severity: 'Media',
@@ -142,12 +142,8 @@ const CLASS_INFO = {
 };
 
 // Componente principal de la aplicación:
-// Orquesta la carga del modelo, control de cámara/subida de imagen,
-// ejecución de inferencia y renderizado del panel (UI, métricas y resultados).
-export default function App() {
+export default function Home() {
   const [activeTab, setActiveTab] = useState('camara');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentTime, setCurrentTime] = useState(new Date());
   const [model, setModel] = useState(null);
   const [isModelLoading, setIsModelLoading] = useState(true); // Inicia como true
   const [modelError, setModelError] = useState(null); // Nuevo estado para error de carga
@@ -160,45 +156,68 @@ export default function App() {
   const [avgConfidence, setAvgConfidence] = useState(0);
   const [uploadedImage, setUploadedImage] = useState(null);
   const [cameraStream, setCameraStream] = useState(null);
-  // Tema (claro/oscuro) persistente
-  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
-  useEffect(() => {
-    const root = document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
-    localStorage.setItem('theme', theme);
-  }, [theme]);
   // Notificaciones (toast)
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
   const [toast, setToast] = useState(null);
   const toastTimerRef = useRef(null);
   const showToast = useCallback((message, type = 'info') => {
+    // Si ya hay un toast, no mostrar otro para evitar solapamiento
+    if (toast) return;
+
     if (toastTimerRef.current) {
       clearTimeout(toastTimerRef.current);
     }
     setToast({ message, type });
     toastTimerRef.current = setTimeout(() => setToast(null), 4000);
   }, []);
-  const [showWelcome, setShowWelcome] = useState(true);
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowWelcome(false);
-    }, 5000);
-    return () => clearTimeout(timer);
-  }, []);
   const navigate = useNavigate();
-  const loggedUser = localStorage.getItem('rumileaf_user') || 'Usuario';
-  
+
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
   const imageRef = useRef(null);
 
+  // CORREGIDO: La función ahora acepta `inferenceTime`
+  const saveAnalysis = useCallback(async (predictions, imageData, sourceType, inferenceTime) => {
+    try {
+      if (!auth.currentUser) {
+        console.log('Usuario no autenticado, omitiendo guardado');
+        return;
+      }
+  
+      const processedDetections = predictions
+        .map(det => {
+          const className = CLASS_NAMES[det.class];
+          if (!className || className === 'Sanas') return null;
+          return {
+            className,
+            confidence: Number((det.confidence * 100).toFixed(1)),
+            bbox: det.bbox.map(coord => Math.round(coord))
+          };
+        })
+        .filter(Boolean);
+  
+      const analysisData = {
+        userId: auth.currentUser.uid,
+        userEmail: auth.currentUser.email,
+        sourceType,
+        imageUrl: imageData, // Guardamos la data URL completa por ahora
+        detections: processedDetections,
+        totalDetections: processedDetections.length,
+        inferenceTimeMs: inferenceTime,
+        createdAt: serverTimestamp()
+      };
+
+      await addDoc(collection(db, 'consultations'), analysisData);
+      showToast('Análisis guardado en tu historial', 'success');
+    } catch (error) {
+      console.error('Error guardando análisis:', error);
+      showToast('Error al guardar análisis', 'error');
+    }
+  }, [showToast]);
+
   // --- LÓGICA DE CARGA DEL MODELO AUTOMÁTICA ---
-  // Carga el modelo TensorFlow.js desde MODEL_PATH; maneja estados de carga y error.
-  // Memoizado con useCallback para evitar recreaciones innecesarias.
   const loadModel = useCallback(async () => {
     try {
       // Usa caché si ya fue cargado previamente para evitar latencia al volver desde otras rutas
@@ -250,17 +269,19 @@ export default function App() {
     loadModel();
   }, [loadModel]);
 
-  // Actualizar la hora cada segundo
+  // Efecto para manejar el tema (claro/oscuro)
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
+    const root = document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
   
   // Iniciar cámara
-  // Activa la cámara del dispositivo y adjunta el stream al <video>; maneja permisos/errores.
   const startCamera = async () => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
     try {
@@ -278,7 +299,6 @@ export default function App() {
   };
 
   // Detener cámara
-  // Detiene todas las pistas del stream y restablece los estados de cámara/detección.
   const stopCamera = () => {
     if (cameraStream) {
       cameraStream.getTracks().forEach(track => track.stop());
@@ -297,7 +317,6 @@ export default function App() {
   // --- Lógica de Inferencia (Mantenida) ---
 
   // Preprocesar imagen para YOLO
-  // Redimensiona a 640x640, normaliza [0,1] y agrega dimensión de batch; usa tf.tidy para liberar memoria.
   const preprocessImage = (source, modelWidth = 640, modelHeight = 640) => {
     return tf.tidy(() => {
       // Dibuja en un canvas temporal al tamaño del modelo para evitar redimensionado costoso en tensor
@@ -313,11 +332,6 @@ export default function App() {
   };
 
   // Procesar salidas de YOLO (Mantenida)
-  // Asume salida estilo YOLOv8 [1, 18, 8400]: [x, y, w, h, clases...].
-  // Parámetros:
-  //  - confThreshold: umbral mínimo de confianza por clase.
-  //  - iouThreshold: umbral IoU para NMS (filtra solapamientos).
-  // Devuelve un arreglo de objetos { class, confidence, bbox } con bbox en [x, y, w, h].
   const processYOLOOutput = (output, imgWidth, imgHeight, confThreshold = 0.5, iouThreshold = 0.4) => {
     const detections = [];
     const boxes = [];
@@ -390,7 +404,6 @@ export default function App() {
   };
 
   // Ejecutar inferencia
-  // Preprocesa la fuente, ejecuta el modelo (executeAsync) y postprocesa resultados; maneja errores y libera tensores.
   const runInference = async (source) => {
     if (!model) return [];
     
@@ -415,7 +428,6 @@ export default function App() {
   };
 
   // Dibujar detecciones en canvas (Mantenida)
-  // Dibuja rectángulos y etiquetas sobre un canvas sincronizado con la fuente (video/imagen).
   const drawDetections = (dets, source) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -497,8 +509,19 @@ export default function App() {
     });
   };
 
+  // *** CORRECCIÓN 2: AGREGAR updateStats ***
+  const updateStats = useCallback((ms, preds) => {
+    // Calcula promedios acumulados sin almacenar el histórico completo (running average).
+    setAnalysisCount(prev => {
+      const newCount = prev + 1;
+      setAvgInferenceMs(prevAvg => prev === 0 ? ms : ((prevAvg * prev) + ms) / newCount);
+      const detAvg = preds && preds.length ? preds.reduce((s, d) => s + d.confidence, 0) / preds.length : 0;
+      setAvgConfidence(prevAvg => prev === 0 ? detAvg : ((prevAvg * prev) + detAvg) / newCount);
+      return newCount;
+    });
+  }, []);
+
   // Detectar en tiempo real
-  // Bucle con requestAnimationFrame condicionado por isDetecting y la pestaña activa; actualiza métricas y canvas.
   const detectFrame = async () => {
     if (!model || !videoRef.current || !isDetecting || activeTab !== 'camara' || !cameraStream || deteccionFinalizada) {
       return;
@@ -516,6 +539,7 @@ export default function App() {
     if (plagaDetectada) {
       setDeteccionFinalizada(true);
       setIsDetecting(false);
+      await saveAnalysis(predictions, null, 'camara', ms);
       return;
     }
     // Si no se detecta nada, mostrar notificación
@@ -538,7 +562,6 @@ export default function App() {
   }, [isDetecting, activeTab]);
 
   // Manejar subida de imagen
-  // Lee el archivo como DataURL y limpia detecciones anteriores para evitar resultados obsoletos.
   const handleImageUpload = (event) => {
     const file = event.target.files[0];
     if (file) {
@@ -552,7 +575,6 @@ export default function App() {
   };
 
   // Analizar imagen subida
-  // Asegura que la imagen se haya cargado, ejecuta inferencia y dibuja detecciones en el canvas.
   const analyzeImage = async () => {
     if (!model || !imageRef.current) {
       alert('El modelo no está cargado o no hay imagen.');
@@ -577,6 +599,8 @@ export default function App() {
       setDetections(predictions);
       drawDetections(predictions, imageRef.current);
 
+      await saveAnalysis(predictions, uploadedImage, 'imagen', ms);
+
       // Notificaciones según resultado
       const names = predictions.map(d => CLASS_NAMES[d.class]).filter(Boolean);
       const diseaseNames = names.filter(n => n !== 'Sanas');
@@ -594,7 +618,6 @@ export default function App() {
   };
 
   // Cambio de tab
-  // Detiene la cámara y análisis si se cambia a imagen
   useEffect(() => {
     if (activeTab !== 'camara') {
       stopCamera();
@@ -614,7 +637,6 @@ export default function App() {
   }, [activeTab]);
 
   // Formatear fecha y hora
-  // Devuelve la fecha formateada como 'dd/mm/yyyy' a partir de un objeto Date.
   const formatDate = (date) => {
     const day = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -630,27 +652,12 @@ export default function App() {
     return `${hours}:${minutes}:${seconds}`;
   };
 
-  // Actualiza métricas de desempeño y confianza
-// ms: tiempo de inferencia (ms); preds: detecciones del modelo [{ class, confidence, bbox }].
-  const updateStats = useCallback((ms, preds) => {
-    // Calcula promedios acumulados sin almacenar el histórico completo (running average).
-    setAnalysisCount(prev => {
-      const newCount = prev + 1;
-      setAvgInferenceMs(prevAvg => prev === 0 ? ms : ((prevAvg * prev) + ms) / newCount);
-      const detAvg = preds && preds.length ? preds.reduce((s, d) => s + d.confidence, 0) / preds.length : 0;
-      setAvgConfidence(prevAvg => prev === 0 ? detAvg : ((prevAvg * prev) + detAvg) / newCount);
-      return newCount;
-    });
-  }, []);
-
   // Navegación a la página de Consultas
   const handleNavigateConsultas = () => {
     navigate('/consultas');
   };
 
   // --- Componente de Resultados Mejorado ---
-  // Presenta un diagnóstico principal y un desglose por clases a partir de 'detections'.
-  // No recibe props; usa el estado local. Evita ruido mostrando un resumen cuando no hay detecciones.
   const DetectionResults = () => {
     if (detections.length === 0) {
       return (
@@ -797,358 +804,302 @@ export default function App() {
             </div>
         </div>
       </div>
-      </div>
+    </div>
     );
   };
   // --- Fin Componente de Resultados Mejorado ---
 
   // Main JSX return
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-green-100 dark:from-gray-900 dark:to-gray-800 flex w-screen overflow-x-hidden">
-      {/* Sidebar fijo */}
-      <div className={`fixed inset-y-0 left-0 z-50 transition-all duration-300 ease-in-out ${sidebarOpen ? 'w-64' : 'w-20'}`}>
-        <Sidebar active="home" theme={theme} setTheme={setTheme} sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
-      </div>
+    <>
+      <main className="flex-1 p-6 lg:p-8">
+        <Panel 
+          pageTitle="Diagnóstico por Imagen"
+          theme={theme}
+          setTheme={setTheme}
+          setSidebarOpen={setSidebarOpen}
+        />
+        <div className="w-full max-w-none">
+          <div className="bg-white/90 dark:bg-gray-900/70 backdrop-blur-sm rounded-3xl shadow-xl border border-green-200/50 dark:border-green-700/40 overflow-hidden">
+            <div className="p-8 lg:p-12">
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                {/* Display Area */}
+                <div className="xl:col-span-2">
+                  <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-3xl h-[540px] lg:h-[640px] flex items-center justify-center border-2 border-green-300/60 ring-1 ring-green-200/40 shadow-2xl relative overflow-hidden">
+                    {activeTab === 'camara' ? (
+                      <>
+                        <video
+                          ref={videoRef}
+                          autoPlay
+                          playsInline
+                          className="w-full h-full object-cover"
+                        />
+                        <canvas
+                          ref={canvasRef}
+                          className="absolute inset-0 w-full h-full pointer-events-none"
+                        />
+                        {!cameraStream && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50">
+                            <div className="text-center text-white">
+                              <Camera size={64} className="mx-auto mb-4" />
+                              <p className="text-xl font-semibold">Cámara Desactivada</p>
+                              <p className="text-sm mt-2 text-gray-300">Activa la detección para iniciar.</p>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="w-full h-full relative">
+                        {uploadedImage ? (
+                          <>
+                            <img
+                              ref={imageRef}
+                              src={uploadedImage}
+                              alt="Uploaded"
+                              className="object-contain max-h-full max-w-full absolute inset-0 m-auto"
+                              style={{ display: 'none' }} // Ocultar imagen, mostrar solo canvas
+                              onLoad={() => {
+                                if (canvasRef.current && imageRef.current) {
+                                  const { naturalWidth, naturalHeight } = imageRef.current;
+                                  const canvas = canvasRef.current;
+                                  const container = canvas.parentNode;
 
-      {/* Main Content */}
-      <div id="main-content"
-        className="flex flex-col min-h-screen bg-transparent transition-all duration-500 ease-in-out w-full overflow-y-auto"
-        style={{ paddingLeft: sidebarOpen ? '18rem' : '5rem', transition: 'padding-left 0.5s cubic-bezier(0.4,0,0.2,1)' }}
-      >
-        <header className="sticky top-0 z-30 bg-white/80 dark:bg-gray-900/60 backdrop-blur-sm border-b border-green-200/50 dark:border-green-700/50 shadow-sm">
-          <div className="px-6 py-3 flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button 
-                className="lg:hidden p-2 rounded-lg hover:bg-green-100 transition-colors"
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-              >
-                <Menu size={24} className="text-green-700 dark:text-green-200" />
-              </button>
-              <div>
-                <h1 className="text-2xl font-bold text-green-900 dark:text-green-100">Panel de Control</h1>
-                <p className="text-green-600 text-sm dark:text-green-300">Detección de enfermedades en tiempo real</p>
-              </div>
-            </div>
+                                  // Ajustar tamaño del canvas al contenedor manteniendo aspect ratio
+                                  const containerWidth = container.clientWidth;
+                                  const containerHeight = container.clientHeight;
+                                  let displayWidth, displayHeight;
+                                  const ratio = naturalWidth / naturalHeight;
 
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-                className="p-2 rounded-lg hover:bg-green-100 dark:hover:bg-gray-700 transition-colors"
-                title="Cambiar tema"
-              >
-                {theme === 'light' ? <Moon size={20} className="text-green-700" /> : <Sun size={20} className="text-green-200" />}
-              </button>
+                                  if (containerWidth / containerHeight > ratio) {
+                                      displayHeight = containerHeight;
+                                      displayWidth = containerHeight * ratio;
+                                  } else {
+                                      displayWidth = containerWidth;
+                                      displayHeight = containerWidth / ratio;
+                                  }
 
-              <div className="hidden lg:block w-px h-8 bg-green-200 dark:bg-green-700/50"></div>
+                                  canvas.width = naturalWidth;
+                                  canvas.height = naturalHeight;
+                                  canvas.style.width = `${displayWidth}px`;
+                                  canvas.style.height = `${displayHeight}px`;
 
-              <div className="group relative hidden lg:flex items-center space-x-3">
-                <div className="w-10 h-10 bg-green-100 dark:bg-green-900/40 rounded-full flex items-center justify-center ring-2 ring-green-200 dark:ring-green-700">
-                  <User size={20} className="text-green-600 dark:text-green-300" />
+                                  const ctx = canvas.getContext('2d');
+                                  ctx.drawImage(imageRef.current, 0, 0); // Dibujar imagen original
+                                }
+                              }}
+                            />
+                            {/* Canvas ajustado para mostrar la imagen con las detecciones */}
+                            <canvas
+                              ref={canvasRef}
+                              className="object-contain absolute inset-0 m-auto rounded-xl shadow-2xl ring-1 ring-black/10"
+                            />
+                          </>
+                        ) : (
+                          <div className="absolute inset-0 flex items-center justify-center p-8">
+                            <div className="w-full max-w-2xl rounded-2xl border-2 border-dashed border-green-300/60 bg-white/5 backdrop-blur-sm p-8 text-center shadow-lg">
+                              <div className="mx-auto mb-4 w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center ring-2 ring-green-400/40">
+                                <Image size={28} className="text-green-200" />
+                              </div>
+                              <p className="text-2xl font-semibold text-green-100">Sube una imagen para analizar</p>
+                              <p className="mt-2 text-sm text-green-100/80">Formatos soportados: JPG, PNG. Procura buena iluminación.</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="absolute right-0 top-full mt-2 bg-white dark:bg-gray-800 shadow-lg border border-green-200 dark:border-green-700 rounded-lg px-4 py-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                  <p className="font-semibold text-sm text-green-700 dark:text-green-200 text-center">Administrador</p>
-                </div>
-              </div>
 
-            
-              <div className="flex items-center space-x-2 bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200 px-4 py-2 rounded-lg">
-                <CalendarDays size={16} className="text-green-600 dark:text-green-300" />
-                <span className="text-sm font-medium">{formatDate(currentTime)}</span>
-              </div>
-              <div className="flex items-center space-x-2 bg-green-500 dark:bg-green-600 text-white px-4 py-2 rounded-lg">
-                <Clock size={16} />
-                <span className="text-sm font-semibold">{formatTime(currentTime)}</span>
-              </div>
-            </div>
-          </div>
-        </header>
+                {/* Controls Panel */}
+                <div className="xl:col-span-1">
+                  <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-2xl p-6 border-2 border-green-200/50 shadow-inner h-full">
+                    <h3 className="text-lg font-bold text-green-800 mb-6">Controles y Estado</h3>
+                    
+                    {/* Mode Selection */}
+                    <div className="space-y-4 mb-8">
+                      <label className="block text-sm font-medium text-green-700 mb-3">
+                        Modo de Operación
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => setActiveTab('camara')}
+                          className={`flex items-center justify-center space-x-2 py-3 px-4 rounded-xl font-semibold transition-all duration-200 ${
+                            activeTab === 'camara'
+                              ? 'bg-green-600 text-white shadow-lg transform scale-105'
+                              : 'bg-white text-green-700 hover:bg-green-100 border border-green-300'
+                          }`}
+                        >
+                          <Camera size={20} />
+                          <span>Cámara</span>
+                        </button>
+                        <button
+                          onClick={() => setActiveTab('imagen')}
+                          className={`flex items-center justify-center space-x-2 py-3 px-4 rounded-xl font-semibold transition-all duration-200 ${
+                            activeTab === 'imagen'
+                              ? 'bg-green-600 text-white shadow-lg transform scale-105'
+                              : 'bg-white text-green-700 hover:bg-green-100 border border-green-300'
+                          }`}
+                        >
+                          <Image size={20} />
+                          <span>Imagen</span>
+                        </button>
+                      </div>
+                    </div>
 
-        <main className="flex-1 p-6 lg:p-8">
-          <div className="w-full max-w-none">
-            <div className="bg-white/90 dark:bg-gray-900/70 backdrop-blur-sm rounded-3xl shadow-xl border border-green-200/50 dark:border-green-700/40 overflow-hidden">
-              <div className="p-8 lg:p-12">
-                <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-                  {/* Display Area */}
-                  <div className="xl:col-span-2">
-                    <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-3xl h-[540px] lg:h-[640px] flex items-center justify-center border-2 border-green-300/60 ring-1 ring-green-200/40 shadow-2xl relative overflow-hidden">
+                    {/* Action Buttons */}
+                    <div className="space-y-3">
                       {activeTab === 'camara' ? (
                         <>
-                          <video
-                            ref={videoRef}
-                            autoPlay
-                            playsInline
-                            className="w-full h-full object-cover"
-                          />
-                          <canvas
-                            ref={canvasRef}
-                            className="absolute inset-0 w-full h-full pointer-events-none"
-                          />
-                          {!cameraStream && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50">
-                              <div className="text-center text-white">
-                                <Camera size={64} className="mx-auto mb-4" />
-                                <p className="text-xl font-semibold">Cámara Desactivada</p>
-                                <p className="text-sm mt-2 text-gray-300">Activa la detección para iniciar.</p>
-                              </div>
-                            </div>
-                          )}
+                          {/* Botón para activar/desactivar cámara */}
+                          <button
+                            onClick={async () => {
+                              if (cameraStream) {
+                                stopCamera();
+                              } else {
+                                await startCamera();
+                              }
+                            }}
+                            className={`w-full ${cameraStream ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'} text-white py-3 px-4 rounded-xl font-semibold transition-all duration-200 shadow-md hover:shadow-lg flex items-center justify-center space-x-2`}
+                          >
+                            {cameraStream ? (
+                              <>
+                                <Square size={20} />
+                                <span>Desactivar Cámara</span>
+                              </>
+                            ) : (
+                              <>
+                                <Play size={20} />
+                                <span>Activar Cámara</span>
+                              </>
+                            )}
+                          </button>
+
+                          {/* Botón para iniciar/detener detección */}
+                          <button
+                            onClick={() => {
+                              // Asegura que el modelo esté cargado antes de detectar
+                              if (!model) {
+                                alert('Esperando la carga del modelo...');
+                                return;
+                              }
+                              setDeteccionFinalizada(false);
+                              setIsDetecting(!isDetecting);
+                            }}
+                            disabled={!cameraStream || !model || isModelLoading || deteccionFinalizada}
+                            className="w-full mt-3 bg-green-500 hover:bg-green-600 text-white py-3 px-4 rounded-xl font-semibold transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 flex items-center justify-center space-x-2"
+                          >
+                            {isDetecting ? (
+                              <>
+                                <Square size={20} />
+                                <span>Detener Detección</span>
+                              </>
+                            ) : (
+                              <>
+                                <Play size={20} />
+                                <span>Iniciar Detección</span>
+                              </>
+                            )}
+                          </button>
                         </>
                       ) : (
-                        <div className="w-full h-full relative">
-                          {uploadedImage ? (
-                            <>
-                              <img
-                                ref={imageRef}
-                                src={uploadedImage}
-                                alt="Uploaded"
-                                className="object-contain max-h-full max-w-full absolute inset-0 m-auto"
-                                style={{ display: 'none' }} // Ocultar imagen, mostrar solo canvas
-                                onLoad={() => {
-                                  if (canvasRef.current && imageRef.current) {
-                                    const { naturalWidth, naturalHeight } = imageRef.current;
-                                    const canvas = canvasRef.current;
-                                    const container = canvas.parentNode;
-
-                                    // Ajustar tamaño del canvas al contenedor manteniendo aspect ratio
-                                    const containerWidth = container.clientWidth;
-                                    const containerHeight = container.clientHeight;
-                                    let displayWidth, displayHeight;
-                                    const ratio = naturalWidth / naturalHeight;
-
-                                    if (containerWidth / containerHeight > ratio) {
-                                        displayHeight = containerHeight;
-                                        displayWidth = containerHeight * ratio;
-                                    } else {
-                                        displayWidth = containerWidth;
-                                        displayHeight = containerWidth / ratio;
-                                    }
-
-                                    canvas.width = naturalWidth;
-                                    canvas.height = naturalHeight;
-                                    canvas.style.width = `${displayWidth}px`;
-                                    canvas.style.height = `${displayHeight}px`;
-
-                                    const ctx = canvas.getContext('2d');
-                                    ctx.drawImage(imageRef.current, 0, 0); // Dibujar imagen original
-                                  }
-                                }}
-                              />
-                              {/* Canvas ajustado para mostrar la imagen con las detecciones */}
-                              <canvas
-                                ref={canvasRef}
-                                className="object-contain absolute inset-0 m-auto rounded-xl shadow-2xl ring-1 ring-black/10"
-                              />
-                                                          </>
-                          ) : (
-                            <div className="absolute inset-0 flex items-center justify-center p-8">
-                              <div className="w-full max-w-2xl rounded-2xl border-2 border-dashed border-green-300/60 bg-white/5 backdrop-blur-sm p-8 text-center shadow-lg">
-                                <div className="mx-auto mb-4 w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center ring-2 ring-green-400/40">
-                                  <Image size={28} className="text-green-200" />
-                                </div>
-                                <p className="text-2xl font-semibold text-green-100">Sube una imagen para analizar</p>
-                                <p className="mt-2 text-sm text-green-100/80">Formatos soportados: JPG, PNG. Procura buena iluminación.</p>
-                              </div>
-                            </div>
+                        <>
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/*"
+                            onChange={handleImageUpload}
+                            className="hidden"
+                          />
+                          <button
+                            onClick={() => fileInputRef.current?.click()}
+                            className="w-full bg-green-500 hover:bg-green-600 text-white py-3 px-4 rounded-xl font-semibold transition-all duration-200 shadow-md hover:shadow-lg flex items-center justify-center space-x-2"
+                          >
+                            <Upload size={20} />
+                            <span>Subir Imagen</span>
+                          </button>
+                          {uploadedImage && (
+                            <button
+                              onClick={analyzeImage}
+                              disabled={!model || isModelLoading || isAnalyzing}
+                              className="w-full bg-blue-500 hover:bg-blue-600 text-white py-3 px-4 rounded-xl font-semibold transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 inline-flex items-center justify-center space-x-2"
+                            >
+                              {isAnalyzing ? (
+                                <>
+                                  <Loader2 size={18} className="animate-spin" />
+                                  <span>Analizando...</span>
+                                </>
+                              ) : (
+                                <span>Analizar Imagen</span>
+                              )}
+                            </button>
                           )}
-                        </div>
+                        </>
                       )}
                     </div>
 
-                    </div>
-
-                  {/* Controls Panel */}
-                  <div className="xl:col-span-1">
-                    <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-2xl p-6 border-2 border-green-200/50 shadow-inner h-full">
-                      <h3 className="text-lg font-bold text-green-800 mb-6">Controles y Estado</h3>
-                      
-                      {/* Mode Selection */}
-                      <div className="space-y-4 mb-8">
-                        <label className="block text-sm font-medium text-green-700 mb-3">
-                          Modo de Operación
-                        </label>
-                        <div className="grid grid-cols-2 gap-3">
-                          <button
-                            onClick={() => setActiveTab('camara')}
-                            className={`flex items-center justify-center space-x-2 py-3 px-4 rounded-xl font-semibold transition-all duration-200 ${
-                              activeTab === 'camara'
-                                ? 'bg-green-600 text-white shadow-lg transform scale-105'
-                                : 'bg-white text-green-700 hover:bg-green-100 border border-green-300'
-                            }`}
-                          >
-                            <Camera size={20} />
-                            <span>Cámara</span>
-                          </button>
-                          <button
-                            onClick={() => setActiveTab('imagen')}
-                            className={`flex items-center justify-center space-x-2 py-3 px-4 rounded-xl font-semibold transition-all duration-200 ${
-                              activeTab === 'imagen'
-                                ? 'bg-green-600 text-white shadow-lg transform scale-105'
-                                : 'bg-white text-green-700 hover:bg-green-100 border border-green-300'
-                            }`}
-                          >
-                            <Image size={20} />
-                            <span>Imagen</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Action Buttons */}
-                      <div className="space-y-3">
-                        {activeTab === 'camara' ? (
-                          <>
-                            {/* Botón para activar/desactivar cámara */}
-                            <button
-                              onClick={async () => {
-                                if (cameraStream) {
-                                  stopCamera();
-                                } else {
-                                  await startCamera();
-                                }
-                              }}
-                              className={`w-full ${cameraStream ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'} text-white py-3 px-4 rounded-xl font-semibold transition-all duration-200 shadow-md hover:shadow-lg flex items-center justify-center space-x-2`}
-                            >
-                              {cameraStream ? (
-                                <>
-                                  <Square size={20} />
-                                  <span>Desactivar Cámara</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Play size={20} />
-                                  <span>Activar Cámara</span>
-                                </>
-                              )}
-                            </button>
-
-                            {/* Botón para iniciar/detener detección */}
-                            <button
-                              onClick={() => {
-                                // Asegura que el modelo esté cargado antes de detectar
-                                if (!model) {
-                                  alert('Esperando la carga del modelo...');
-                                  return;
-                                }
-                                setDeteccionFinalizada(false);
-                                setIsDetecting(!isDetecting);
-                              }}
-                              disabled={!cameraStream || !model || isModelLoading || deteccionFinalizada}
-                              className="w-full mt-3 bg-green-500 hover:bg-green-600 text-white py-3 px-4 rounded-xl font-semibold transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 flex items-center justify-center space-x-2"
-                            >
-                              {isDetecting ? (
-                                <>
-                                  <Square size={20} />
-                                  <span>Detener Detección</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Play size={20} />
-                                  <span>Iniciar Detección</span>
-                                </>
-                              )}
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <input
-                              ref={fileInputRef}
-                              type="file"
-                              accept="image/*"
-                              onChange={handleImageUpload}
-                              className="hidden"
-                            />
-                            <button
-                              onClick={() => fileInputRef.current?.click()}
-                              className="w-full bg-green-500 hover:bg-green-600 text-white py-3 px-4 rounded-xl font-semibold transition-all duration-200 shadow-md hover:shadow-lg flex items-center justify-center space-x-2"
-                            >
-                              <Upload size={20} />
-                              <span>Subir Imagen</span>
-                            </button>
-                            {uploadedImage && (
-                              <button
-                                onClick={analyzeImage}
-                                disabled={!model || isModelLoading || isAnalyzing}
-                                className="w-full bg-blue-500 hover:bg-blue-600 text-white py-3 px-4 rounded-xl font-semibold transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 inline-flex items-center justify-center space-x-2"
-                              >
-                                {isAnalyzing ? (
-                                  <>
-                                    <Loader2 size={18} className="animate-spin" />
-                                    <span>Analizando...</span>
-                                  </>
-                                ) : (
-                                  <span>Analizar Imagen</span>
-                                )}
-                              </button>
-                            )}
-                          </>
-                        )}
-                      </div>
-
-                      {/* Status / Diagnosis oculto: bloque eliminado completamente */}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {detections.length > 0 && (
-              <div className="mt-8">
-                <DetectionResults />
-              </div>
-            )}
-            {/* Se eliminó la sección redundante de "Resultado Detectado/Listado" para evitar ruido visual. */}
-
-            {/* Stats Cards (Dinámicas) */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
-              {/* Análisis Realizados */}
-              <div className="relative overflow-hidden rounded-2xl p-6 bg-gradient-to-br from-white to-green-50 border border-green-200/60 shadow-lg">
-                <div className="absolute -right-8 -top-8 w-24 h-24 bg-green-200/40 rounded-full blur-2xl"></div>
-                <div className="flex items-center space-x-4 relative">
-                  <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center shadow-inner border border-green-200">
-                    <Activity size={24} className="text-green-600" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-green-800">Análisis Realizados</p>
-                    <p className="text-3xl font-extrabold text-green-700 tracking-tight">{analysisCount.toLocaleString('es-ES')}</p>
-                    <p className="text-xs text-green-700/70">Total desde inicio</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Confianza Promedio */}
-              <div className="relative overflow-hidden rounded-2xl p-6 bg-gradient-to-br from-white to-green-50 border border-green-200/60 shadow-lg">
-                <div className="absolute -right-8 -top-8 w-24 h-24 bg-emerald-200/40 rounded-full blur-2xl"></div>
-                <div className="flex items-center space-x-4 relative">
-                  <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center shadow-inner border border-emerald-200">
-                    <BarChart3 size={24} className="text-emerald-600" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-green-800">Confianza Promedio</p>
-                    <p className="text-3xl font-extrabold text-emerald-700 tracking-tight">{analysisCount > 0 ? `${(avgConfidence * 100).toFixed(1)}%` : '--'}</p>
-                    <p className="text-xs text-emerald-700/70">Basado en detecciones</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Tiempo medio de Inferencia */}
-              <div className="relative overflow-hidden rounded-2xl p-6 bg-gradient-to-br from-white to-green-50 border border-green-200/60 shadow-lg">
-                <div className="absolute -right-8 -top-8 w-24 h-24 bg-teal-200/40 rounded-full blur-2xl"></div>
-                <div className="flex items-center space-x-4 relative">
-                  <div className="w-12 h-12 bg-teal-100 rounded-xl flex items-center justify-center shadow-inner border border-teal-200">
-                    <Timer size={24} className="text-teal-700" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-green-800">Tiempo Medio de Inferencia</p>
-                    <p className="text-3xl font-extrabold text-teal-700 tracking-tight">{analysisCount > 0 ? `${Math.round(avgInferenceMs)}ms` : '--'}</p>
-                    <p className="text-xs text-teal-700/70">Promedio por análisis</p>
+                    {/* Status / Diagnosis oculto: bloque eliminado completamente */}
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        </main>
-      </div>
 
+          {detections.length > 0 && (
+            <div className="mt-8">
+              <DetectionResults />
+            </div>
+          )}
+          {/* Se eliminó la sección redundante de "Resultado Detectado/Listado" para evitar ruido visual. */}
 
+          {/* Stats Cards (Dinámicas) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
+            {/* Análisis Realizados */}
+            <div className="relative overflow-hidden rounded-2xl p-6 bg-gradient-to-br from-white to-green-50 border border-green-200/60 shadow-lg">
+              <div className="absolute -right-8 -top-8 w-24 h-24 bg-green-200/40 rounded-full blur-2xl"></div>
+              <div className="flex items-center space-x-4 relative">
+                <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center shadow-inner border border-green-200">
+                  <Activity size={24} className="text-green-600" />
+                </div>
+                <div>
+                  <p className="font-semibold text-green-800">Análisis Realizados</p>
+                  <p className="text-3xl font-extrabold text-green-700 tracking-tight">{analysisCount.toLocaleString('es-ES')}</p>
+                  <p className="text-xs text-green-700/70">Total desde inicio</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Confianza Promedio */}
+            <div className="relative overflow-hidden rounded-2xl p-6 bg-gradient-to-br from-white to-green-50 border border-green-200/60 shadow-lg">
+              <div className="absolute -right-8 -top-8 w-24 h-24 bg-emerald-200/40 rounded-full blur-2xl"></div>
+              <div className="flex items-center space-x-4 relative">
+                <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center shadow-inner border border-emerald-200">
+                  <BarChart3 size={24} className="text-emerald-600" />
+                </div>
+                <div>
+                  <p className="font-semibold text-green-800">Confianza Promedio</p>
+                  <p className="text-3xl font-extrabold text-emerald-700 tracking-tight">{analysisCount > 0 ? `${(avgConfidence * 100).toFixed(1)}%` : '--'}</p>
+                  <p className="text-xs text-emerald-700/70">Basado en detecciones</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Tiempo medio de Inferencia */}
+            <div className="relative overflow-hidden rounded-2xl p-6 bg-gradient-to-br from-white to-green-50 border border-green-200/60 shadow-lg">
+              <div className="absolute -right-8 -top-8 w-24 h-24 bg-teal-200/40 rounded-full blur-2xl"></div>
+              <div className="flex items-center space-x-4 relative">
+                <div className="w-12 h-12 bg-teal-100 rounded-xl flex items-center justify-center shadow-inner border border-teal-200">
+                  <Timer size={24} className="text-teal-700" />
+                </div>
+                <div>
+                  <p className="font-semibold text-green-800">Tiempo Medio de Inferencia</p>
+                  <p className="text-3xl font-extrabold text-teal-700 tracking-tight">{analysisCount > 0 ? `${Math.round(avgInferenceMs)}ms` : '--'}</p>
+                  <p className="text-xs text-teal-700/70">Promedio por análisis</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
       {toast && (
         <div className="fixed top-6 right-6 z-[60]">
           <div className={`flex items-start gap-3 px-4 py-3 rounded-xl shadow-xl border ${
@@ -1220,6 +1171,6 @@ export default function App() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

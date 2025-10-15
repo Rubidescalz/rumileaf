@@ -1,19 +1,20 @@
+// src/components/Sidebar.jsx
 import React from 'react';
-import { Home, MessageSquare, Sun, Moon, User, Menu, X, LogOut } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Home, MessageSquare, History, Menu, X, LogOut } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import logo from '../assets/rumileaf.png';
 
-
-const Sidebar = ({ active, theme, setTheme, sidebarOpen, setSidebarOpen }) => {
+const Sidebar = ({ theme, setTheme, sidebarOpen, setSidebarOpen }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const isOpen = sidebarOpen;
   const toggleSidebar = () => setSidebarOpen && setSidebarOpen(!sidebarOpen);
-  // Obtener usuario logueado
-  const loggedUser = localStorage.getItem('rumileaf_user') || 'Usuario';
+
+  const activeRoute = location.pathname;
+  // ✅ Removí loggedUser que no se usaba
 
   return (
     <>
-      {/* Overlay para cerrar el sidebar en móvil */}
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
@@ -21,16 +22,13 @@ const Sidebar = ({ active, theme, setTheme, sidebarOpen, setSidebarOpen }) => {
         />
       )}
 
-      {/* Sidebar */}
       <div
         className={`fixed inset-y-0 left-0 z-50 bg-gradient-to-b from-green-900 via-green-800 to-green-700 text-white shadow-2xl transition-all duration-300 ease-in-out ${
           isOpen ? 'w-72' : 'w-20'
         }`}
       >
         <div className="flex flex-col h-full">
-          {/* Header con botón hamburguesa */}
           <div className={`p-8 text-center border-b border-green-600/30 relative ${!isOpen && 'p-4'}`}>
-            {/* Botón hamburguesa */}
             <button
               onClick={toggleSidebar}
               className="absolute top-6 left-6 p-2 hover:bg-green-700/50 rounded-lg transition-all duration-200"
@@ -65,8 +63,10 @@ const Sidebar = ({ active, theme, setTheme, sidebarOpen, setSidebarOpen }) => {
 
           <nav className="flex-1 p-6 space-y-3">
             <button
-              className={`w-full flex items-center ${isOpen ? 'space-x-4 px-6' : 'justify-center px-2'} py-4 rounded-xl transition-all duration-200 mb-4 border border-green-600/20 ${
-                active === 'home' ? 'bg-green-700/30' : 'hover:bg-green-700/50'
+              className={`w-full flex items-center ${
+                isOpen ? 'space-x-4 px-6' : 'justify-center px-2'
+              } py-4 rounded-xl transition-all duration-200 mb-4 border border-green-600/20 ${
+                activeRoute === '/' ? 'bg-green-700/30' : 'hover:bg-green-700/50'
               }`}
               onClick={() => navigate('/')}
               title={!isOpen ? 'Inicio' : ''}
@@ -76,8 +76,10 @@ const Sidebar = ({ active, theme, setTheme, sidebarOpen, setSidebarOpen }) => {
             </button>
 
             <button
-              className={`w-full flex items-center ${isOpen ? 'space-x-4 px-6' : 'justify-center px-2'} py-4 rounded-xl transition-all duration-200 border border-green-600/20 ${
-                active === 'consultas' ? 'bg-green-700/30' : 'hover:bg-green-700/50'
+              className={`w-full flex items-center ${
+                isOpen ? 'space-x-4 px-6' : 'justify-center px-2'
+              } py-4 rounded-xl transition-all duration-200 border border-green-600/20 ${
+                activeRoute === '/consultas' ? 'bg-green-700/30' : 'hover:bg-green-700/50'
               }`}
               onClick={() => navigate('/consultas')}
               title={!isOpen ? 'Consultas' : ''}
@@ -85,9 +87,21 @@ const Sidebar = ({ active, theme, setTheme, sidebarOpen, setSidebarOpen }) => {
               <MessageSquare size={24} className="text-green-200" />
               {isOpen && <span className="text-lg font-medium">Consultas</span>}
             </button>
+
+            <button
+              className={`w-full flex items-center ${
+                isOpen ? 'space-x-4 px-6' : 'justify-center px-2'
+              } py-4 rounded-xl transition-all duration-200 border border-green-600/20 ${
+                activeRoute === '/historial' ? 'bg-green-700/30' : 'hover:bg-green-700/50'
+              }`}
+              onClick={() => navigate('/historial')}
+              title={!isOpen ? 'Historial' : ''}
+            >
+              <History size={24} className="text-green-200" />
+              {isOpen && <span className="text-lg font-medium">Historial</span>}
+            </button>
           </nav>
 
-          {/* Footer: User Profile & Logout */}
           <div className={`p-4 border-t border-green-600/30 ${!isOpen ? 'p-2' : ''}`}>
             <button
               onClick={() => {
