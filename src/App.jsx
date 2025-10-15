@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { auth } from './firebase'; // Asegúrate de que la ruta sea correcta
-import { Loader2 } from 'lucide-react'; // Importa Loader2
+import { auth } from './firebase'; 
+import { Loader2 } from 'lucide-react'; 
 import Home from './pages/Home';
 import Consultas from './pages/Consultas';
 import Login from './pages/Login';
@@ -9,18 +9,15 @@ import Historial from './pages/Historial';
 import Sidebar from './components/Sidebar';
 import './App.css';
 
-// Verificar autenticación (sincronizada con Firebase)
 function isAuthenticated() {
   return !!auth.currentUser || localStorage.getItem('rumileaf_auth') === 'true';
 }
 
-// Rutas protegidas
 function PrivateLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 1024);
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
   const location = useLocation();
 
-  // Determina la ruta activa para pasarla al Sidebar
   const getActiveRoute = () => {
     const path = location.pathname;
     if (path.startsWith('/consultas')) return 'consultas';
@@ -28,7 +25,6 @@ function PrivateLayout({ children }) {
     return 'home';
   };
 
-  // Actualiza el tema en localStorage
   useEffect(() => {
     localStorage.setItem('theme', theme);
     document.documentElement.setAttribute('data-theme', theme);
@@ -53,7 +49,7 @@ function PrivateLayout({ children }) {
   );
 }
 
-function PrivateRoute({ children, location }) { // Añade location como prop
+function PrivateRoute({ children, location }) { 
   const [isAuthChecked, setIsAuthChecked] = useState(false);
 
   useEffect(() => {
@@ -78,14 +74,14 @@ function PrivateRoute({ children, location }) { // Añade location como prop
   }
 
   if (!isAuthenticated()) {
-    return <Navigate to="/login" replace state={{ from: location }} />; // Usa la prop location
+    return <Navigate to="/login" replace state={{ from: location }} />; 
   }
 
   return <PrivateLayout>{children}</PrivateLayout>;
 }
 
 function App() {
-  const location = useLocation(); // Pasa location al PrivateRoute
+  const location = useLocation(); 
 
   return (
     <Routes location={location}> {/* Pasa location al Routes */}

@@ -1,4 +1,3 @@
-// src/components/Sidebar.jsx
 import React from 'react';
 import { Home, MessageSquare, History, Menu, X, LogOut } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -11,7 +10,6 @@ const Sidebar = ({ theme, setTheme, sidebarOpen, setSidebarOpen }) => {
   const toggleSidebar = () => setSidebarOpen && setSidebarOpen(!sidebarOpen);
 
   const activeRoute = location.pathname;
-  // ✅ Removí loggedUser que no se usaba
 
   return (
     <>

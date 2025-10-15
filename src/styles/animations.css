@@ -1,6 +1,4 @@
-/* Animations for FloatingRobot banner and model float */
 
-/* Smooth appear, hold, and fade-out for the welcome banner */
 @keyframes fadeInOut {
   0% {
     opacity: 0;
@@ -20,7 +18,7 @@
   }
 }
 
-/* Gentle floating for the 3D robot */
+
 @keyframes floatRobot {
   0% {
     transform: translateY(0) rotateX(0deg) rotateZ(0deg);
@@ -33,7 +31,6 @@
   }
 }
 
-/* Optionally reduce motion for users who prefer less animation */
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.001ms !important;

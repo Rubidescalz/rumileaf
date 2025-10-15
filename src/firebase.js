@@ -1,4 +1,3 @@
-// src/firebase.js
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
@@ -13,15 +12,11 @@ const firebaseConfig = {
   measurementId: "G-19N9B0SJKN"
 };
 
-// Initialize Firebase
+
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// ✅ Eliminé analytics completamente ya que no se usa
-// Si más adelante necesitas analytics, agrégalo así:
-// import { getAnalytics } from "firebase/analytics";
-// const analytics = getAnalytics(app);
 
 export { db, auth };
 export default app;

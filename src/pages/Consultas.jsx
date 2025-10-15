@@ -4,12 +4,6 @@ import { Send, Loader2, Sparkles, Leaf, Brain, MessageSquare, Image } from 'luci
 import Panel from '../components/Panel';
 import '../styles/animations.css';
 
-/* 
-Página: Consultas — RumiLeaf AI
-Chat interactivo con IA (Gemini) — diseño limpio y moderno 🌱
-*/
-
-// --- Configuración de modelos Gemini ---
 const GEMINI_MODELS = [
   'gemini-2.5-flash',
   'gemini-2.0-flash',
@@ -22,7 +16,6 @@ const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || 'AIzaSyBkFlnHIv-r
 const MAX_HISTORY = 6;
 const TIMEOUT_MS = 10000;
 
-// --- Función para comunicación con Gemini ---
 async function fetchGeminiChat(history, modelIndex = 0) {
   if (!GEMINI_API_KEY) throw new Error('Falta configurar REACT_APP_GEMINI_API_KEY');
   if (modelIndex >= GEMINI_MODELS.length) throw new Error('No hay modelos disponibles');
@@ -72,7 +65,6 @@ async function fetchGeminiChat(history, modelIndex = 0) {
   }
 }
 
-// --- Componente visual de burbujas de mensaje ---
 const MessageBubble = ({ message, isUser }) => (
   <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-5`}>
     <div
@@ -98,8 +90,6 @@ const MessageBubble = ({ message, isUser }) => (
 export default function Consultas() {
   const navigate = useNavigate();
   const messagesEndRef = useRef(null);
-
-  // --- Estados principales ---
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
@@ -113,7 +103,7 @@ export default function Consultas() {
   useEffect(() => { fetchGeminiChat([{ role: 'user', text: 'ping' }]).catch(() => {}); }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  // --- Enviar mensaje ---
+
   const sendMessage = async () => {
     const input = chatInput.trim();
     if (!input) return;
@@ -134,7 +124,6 @@ export default function Consultas() {
     }
   };
 
-  // --- Sugerencias rápidas ---
   const suggestions = [
     "🌾 ¿Qué enfermedad causa manchas cafés?",
     "🍃 ¿Cómo tratar hojas amarillas?",
@@ -148,7 +137,7 @@ export default function Consultas() {
         pageTitle="Consultas con IA" 
         theme={theme} 
         setTheme={setTheme} 
-        setSidebarOpen={() => {}} // No se necesita si Sidebar es global
+        setSidebarOpen={() => {}} 
       />
 
       {/* Contenido principal */}

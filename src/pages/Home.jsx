@@ -4,19 +4,14 @@ import * as tf from '@tensorflow/tfjs';
 import { useNavigate } from 'react-router-dom';
 import { db, auth } from '../firebase';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-
-// Importa tu logo aquí (reemplaza en tu código real)
 import '../styles/animations.css';
-import Panel from '../components/Panel'; // Importamos el nuevo panel
+import Panel from '../components/Panel';
 
-// --- CONFIGURACIÓN DEL MODELO ---
+
 const MODEL_PATH = '/cafe_yolo_model_final_web_model/model.json';
-
-// Cache global (módulo) para evitar recarga del modelo al navegar entre rutas.
 let YOLO_MODEL_CACHE = null;
 let YOLO_WARMED_UP = false;
 
-// Clases del modelo
 const CLASS_NAMES = [
   'Deficiencia-Boro',
   'Deficiencia-Calcio',
@@ -34,8 +29,6 @@ const CLASS_NAMES = [
   'Sanas'
 ];
 
-// Nota: el modelo produce 14 clases (sin 'Sanas'); 'Sanas' solo se utiliza en la UI cuando no hay detecciones.
-// Colores para cada clase
 const CLASS_COLORS = [
   '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', // Deficiencias (colores cálidos/medios)
   '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2',
@@ -43,7 +36,6 @@ const CLASS_COLORS = [
   '#1D3557', '#06D6A0' // Sanas (verde)
 ];
 
-// Utilidad: convertir color hex a rgba con alfa (para efectos de escaneo)
 const hexToRgba = (hex, alpha = 1) => {
   const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   if (!match) return `rgba(0,0,0,${alpha})`;
@@ -53,7 +45,7 @@ const hexToRgba = (hex, alpha = 1) => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
-// Información de contexto (Mejora en los resultados)
+
 const CLASS_INFO = {
   'Deficiencia-Boro': {
     severity: 'Media',
@@ -141,7 +133,6 @@ const CLASS_INFO = {
   }
 };
 
-// Componente principal de la aplicación:
 export default function Home() {
   const [activeTab, setActiveTab] = useState('camara');
   const [model, setModel] = useState(null);
@@ -156,13 +147,12 @@ export default function Home() {
   const [avgConfidence, setAvgConfidence] = useState(0);
   const [uploadedImage, setUploadedImage] = useState(null);
   const [cameraStream, setCameraStream] = useState(null);
-  // Notificaciones (toast)
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
   const [toast, setToast] = useState(null);
   const toastTimerRef = useRef(null);
   const showToast = useCallback((message, type = 'info') => {
-    // Si ya hay un toast, no mostrar otro para evitar solapamiento
+
     if (toast) return;
 
     if (toastTimerRef.current) {
@@ -177,8 +167,6 @@ export default function Home() {
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
   const imageRef = useRef(null);
-
-  // CORREGIDO: La función ahora acepta `inferenceTime`
   const saveAnalysis = useCallback(async (predictions, imageData, sourceType, inferenceTime) => {
     try {
       if (!auth.currentUser) {
@@ -202,7 +190,7 @@ export default function Home() {
         userId: auth.currentUser.uid,
         userEmail: auth.currentUser.email,
         sourceType,
-        imageUrl: imageData, // Guardamos la data URL completa por ahora
+        imageUrl: imageData, 
         detections: processedDetections,
         totalDetections: processedDetections.length,
         inferenceTimeMs: inferenceTime,
@@ -217,10 +205,9 @@ export default function Home() {
     }
   }, [showToast]);
 
-  // --- LÓGICA DE CARGA DEL MODELO AUTOMÁTICA ---
+
   const loadModel = useCallback(async () => {
     try {
-      // Usa caché si ya fue cargado previamente para evitar latencia al volver desde otras rutas
       if (YOLO_MODEL_CACHE) {
         setModel(YOLO_MODEL_CACHE);
         setIsModelLoading(false);
@@ -235,7 +222,6 @@ export default function Home() {
 
       const loadedModel = await tf.loadGraphModel(MODEL_PATH);
 
-      // Warm-up (una sola vez): compila shaders para reducir la latencia del primer uso
       if (!YOLO_WARMED_UP) {
         const warmupInput = tf.zeros([1, 640, 640, 3]);
         try {
@@ -265,11 +251,10 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    // Carga el modelo al montar el componente
     loadModel();
   }, [loadModel]);
 
-  // Efecto para manejar el tema (claro/oscuro)
+
   useEffect(() => {
     const root = document.documentElement;
     if (theme === 'dark') {
@@ -281,7 +266,7 @@ export default function Home() {
   }, [theme]);
 
   
-  // Iniciar cámara
+
   const startCamera = async () => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
     try {
@@ -298,7 +283,7 @@ export default function Home() {
     }
   };
 
-  // Detener cámara
+
   const stopCamera = () => {
     if (cameraStream) {
       cameraStream.getTracks().forEach(track => track.stop());
@@ -306,7 +291,6 @@ export default function Home() {
       setIsDetecting(false);
       setDeteccionFinalizada(false);
       setDetections([]);
-      // Limpiar canvas
       if (canvasRef.current) {
         const ctx = canvasRef.current.getContext('2d');
         ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
@@ -314,9 +298,6 @@ export default function Home() {
     }
   };
 
-  // --- Lógica de Inferencia (Mantenida) ---
-
-  // Preprocesar imagen para YOLO
   const preprocessImage = (source, modelWidth = 640, modelHeight = 640) => {
     return tf.tidy(() => {
       // Dibuja en un canvas temporal al tamaño del modelo para evitar redimensionado costoso en tensor
@@ -331,23 +312,20 @@ export default function Home() {
     });
   };
 
-  // Procesar salidas de YOLO (Mantenida)
   const processYOLOOutput = (output, imgWidth, imgHeight, confThreshold = 0.5, iouThreshold = 0.4) => {
     const detections = [];
     const boxes = [];
     const scores = [];
     const classIds = [];
-    // Extraer datos del tensor de salida
     let outputData;
     if (output instanceof tf.Tensor) {
       outputData = output.dataSync();
     } else if (Array.isArray(output)) {
-      // Si el modelo devuelve un array de tensores, tomar el primero
       outputData = output[0].dataSync();
     } else {
       throw new Error('Formato de salida de modelo no soportado');
     }
-    const numDetections = 8400; // anchors típicos de YOLO v8
+    const numDetections = 8400; 
     const numClasses = 14;
 
     for (let i = 0; i < numDetections; i++) {
@@ -373,17 +351,15 @@ export default function Home() {
         const w = width * imgWidth / 640;
         const h = height * imgHeight / 640;
         
-        boxes.push([x1, y1, w, h]); // [x, y, w, h]
+        boxes.push([x1, y1, w, h]); 
         scores.push(maxScore);
         classIds.push(maxClassId);
       }
     }
     
-    // Prevent error if no detections
     if (boxes.length === 0) {
       return [];
     }
-    // Aplicar NMS (corrige orden de parámetros y libera tensores intermedios)
     const boxesTensor = tf.tensor2d(boxes.map(box => [box[1], box[0], box[1] + box[3], box[0] + box[2]]));
     const scoresTensor = tf.tensor1d(scores);
     const nms = tf.image.nonMaxSuppression(boxesTensor, scoresTensor, 50, iouThreshold, confThreshold);
@@ -403,7 +379,6 @@ export default function Home() {
     return detections;
   };
 
-  // Ejecutar inferencia
   const runInference = async (source) => {
     if (!model) return [];
     
@@ -427,7 +402,6 @@ export default function Home() {
     }
   };
 
-  // Dibujar detecciones en canvas (Mantenida)
   const drawDetections = (dets, source) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -459,7 +433,6 @@ export default function Home() {
       ctx.fillStyle = 'white';
       ctx.fillText(label, x + 5, y - 8);
 
-      // Efecto de escaneo y nombre centrado para hojas enfermas en modo cámara
       if (activeTab === 'camara') {
         const className = CLASS_NAMES[det.class];
         if (className !== 'Sanas') {
@@ -468,7 +441,6 @@ export default function Home() {
           ctx.rect(x, y, w, h);
           ctx.clip();
 
-          // Línea de escaneo vertical animada
           const now = performance.now();
           const bandHeight = Math.max(12, Math.min(24, h * 0.08));
           const scanY = y + ((now / 8) % (h + bandHeight)) - bandHeight;
@@ -479,7 +451,6 @@ export default function Home() {
           ctx.fillStyle = grad;
           ctx.fillRect(x, y, w, h);
 
-          // Rejilla sutil vertical
           ctx.strokeStyle = hexToRgba(CLASS_COLORS[det.class], 0.25);
           ctx.lineWidth = 1;
           const step = Math.max(8, Math.min(16, Math.floor(w * 0.05)));
@@ -491,7 +462,6 @@ export default function Home() {
           }
           ctx.restore();
 
-          // Etiqueta centrada sobre la hoja
           const labelText = className;
           ctx.font = '600 18px Arial';
           const padX = 8, padY = 6;
@@ -509,9 +479,8 @@ export default function Home() {
     });
   };
 
-  // *** CORRECCIÓN 2: AGREGAR updateStats ***
   const updateStats = useCallback((ms, preds) => {
-    // Calcula promedios acumulados sin almacenar el histórico completo (running average).
+
     setAnalysisCount(prev => {
       const newCount = prev + 1;
       setAvgInferenceMs(prevAvg => prev === 0 ? ms : ((prevAvg * prev) + ms) / newCount);
@@ -521,7 +490,7 @@ export default function Home() {
     });
   }, []);
 
-  // Detectar en tiempo real
+
   const detectFrame = async () => {
     if (!model || !videoRef.current || !isDetecting || activeTab !== 'camara' || !cameraStream || deteccionFinalizada) {
       return;
@@ -534,7 +503,6 @@ export default function Home() {
     setDetections(predictions);
     drawDetections(predictions, videoRef.current);
 
-    // Si se detecta una plaga (cualquier clase distinta de 'Sanas'), detener detección
     const plagaDetectada = predictions.some(d => CLASS_NAMES[d.class] !== 'Sanas');
     if (plagaDetectada) {
       setDeteccionFinalizada(true);
@@ -542,39 +510,36 @@ export default function Home() {
       await saveAnalysis(predictions, null, 'camara', ms);
       return;
     }
-    // Si no se detecta nada, mostrar notificación
     if (predictions.length === 0) {
       showToast('¡Ups! No pudimos identificar ninguna hoja ni plaga en esta toma. Intenta acercar la hoja, enfocar bien y asegúrate de tener buena luz. ¡Tú puedes lograrlo! 🌱✨', 'warning');
     }
 
-    // Solo continuar la detección si sigue activo y la cámara está activa
     if (isDetecting && activeTab === 'camara' && cameraStream) {
       requestAnimationFrame(detectFrame);
     }
   };
 
-  // Enciende o detiene el bucle de detección cuando cambia el modo o el flag isDetecting.
+
   useEffect(() => {
     if (isDetecting && activeTab === 'camara') {
       detectFrame();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [isDetecting, activeTab]);
 
-  // Manejar subida de imagen
+
   const handleImageUpload = (event) => {
     const file = event.target.files[0];
     if (file) {
       const reader = new FileReader();
       reader.onload = (e) => {
         setUploadedImage(e.target.result);
-        setDetections([]); // Limpia detecciones anteriores
+        setDetections([]); 
       };
       reader.readAsDataURL(file);
     }
   };
 
-  // Analizar imagen subida
   const analyzeImage = async () => {
     if (!model || !imageRef.current) {
       alert('El modelo no está cargado o no hay imagen.');
@@ -583,7 +548,6 @@ export default function Home() {
     setIsAnalyzing(true);
 
     try {
-      // Asegurar que la imagen se dibuje antes de inferencia
       await new Promise(resolve => {
         if (imageRef.current.complete) {
           resolve();
@@ -601,7 +565,6 @@ export default function Home() {
 
       await saveAnalysis(predictions, uploadedImage, 'imagen', ms);
 
-      // Notificaciones según resultado
       const names = predictions.map(d => CLASS_NAMES[d.class]).filter(Boolean);
       const diseaseNames = names.filter(n => n !== 'Sanas');
       if (predictions.length === 0 || names.length === 0) {
@@ -617,26 +580,22 @@ export default function Home() {
     }
   };
 
-  // Cambio de tab
   useEffect(() => {
     if (activeTab !== 'camara') {
       stopCamera();
       setIsDetecting(false);
-      // Limpiar canvas para el modo imagen si no hay imagen
       if (canvasRef.current && !uploadedImage) {
         const ctx = canvasRef.current.getContext('2d');
         ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
       }
     }
-    // No iniciar la cámara automáticamente
     return () => {
       stopCamera();
       setIsDetecting(false);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
-  // Formatear fecha y hora
+
   const formatDate = (date) => {
     const day = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -644,7 +603,7 @@ export default function Home() {
     return `${day}/${month}/${year}`;
   };
 
-  // Devuelve la hora local en formato de 24 horas 'HH:MM:SS'.
+
   const formatTime = (date) => {
     const hours = String(date.getHours()).padStart(2, '0');
     const minutes = String(date.getMinutes()).padStart(2, '0');
@@ -652,12 +611,12 @@ export default function Home() {
     return `${hours}:${minutes}:${seconds}`;
   };
 
-  // Navegación a la página de Consultas
+
   const handleNavigateConsultas = () => {
     navigate('/consultas');
   };
 
-  // --- Componente de Resultados Mejorado ---
+
   const DetectionResults = () => {
     if (detections.length === 0) {
       return (
@@ -669,7 +628,7 @@ export default function Home() {
       );
     }
 
-    // Lógica de resultados mejorada: maneja desconocidos y diagnósticos múltiples
+
     const validNames = detections
       .map(d => CLASS_NAMES[d.class])
       .filter(Boolean);
@@ -807,9 +766,7 @@ export default function Home() {
     </div>
     );
   };
-  // --- Fin Componente de Resultados Mejorado ---
 
-  // Main JSX return
   return (
     <>
       <main className="flex-1 p-6 lg:p-8">
@@ -857,14 +814,12 @@ export default function Home() {
                               src={uploadedImage}
                               alt="Uploaded"
                               className="object-contain max-h-full max-w-full absolute inset-0 m-auto"
-                              style={{ display: 'none' }} // Ocultar imagen, mostrar solo canvas
+                              style={{ display: 'none' }} 
                               onLoad={() => {
                                 if (canvasRef.current && imageRef.current) {
                                   const { naturalWidth, naturalHeight } = imageRef.current;
                                   const canvas = canvasRef.current;
                                   const container = canvas.parentNode;
-
-                                  // Ajustar tamaño del canvas al contenedor manteniendo aspect ratio
                                   const containerWidth = container.clientWidth;
                                   const containerHeight = container.clientHeight;
                                   let displayWidth, displayHeight;
@@ -884,7 +839,7 @@ export default function Home() {
                                   canvas.style.height = `${displayHeight}px`;
 
                                   const ctx = canvas.getContext('2d');
-                                  ctx.drawImage(imageRef.current, 0, 0); // Dibujar imagen original
+                                  ctx.drawImage(imageRef.current, 0, 0); 
                                 }
                               }}
                             />
@@ -977,7 +932,6 @@ export default function Home() {
                           {/* Botón para iniciar/detener detección */}
                           <button
                             onClick={() => {
-                              // Asegura que el modelo esté cargado antes de detectar
                               if (!model) {
                                 alert('Esperando la carga del modelo...');
                                 return;

@@ -31,7 +31,6 @@ const Historial = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
 
-  // 🔄 Cargar datos desde la colección "consultations"
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) {
@@ -74,7 +73,6 @@ const Historial = () => {
     }
   }, []);
 
-  // 🌗 Tema persistente
   useEffect(() => {
     const root = document.documentElement;
     if (theme === 'dark') root.classList.add('dark');
@@ -82,7 +80,6 @@ const Historial = () => {
     localStorage.setItem('theme', theme);
   }, [theme]);
 
-  // 📤 Exportar Excel
   const exportToExcel = () => {
     if (history.length === 0) return;
     const data = history.map((item) => ({
@@ -98,7 +95,6 @@ const Historial = () => {
     XLSX.writeFile(wb, 'Historial_RumiLeaf.xlsx');
   };
 
-  // 🧾 Exportar PDF
   const exportToPDF = () => {
     if (history.length === 0) return;
     const doc = new jsPDF({ orientation: 'landscape' });
@@ -125,7 +121,6 @@ const Historial = () => {
     doc.save('Historial_RumiLeaf.pdf');
   };
 
-  // 🌀 Cargando
   if (loading) {
     return (
       <div className="flex flex-col justify-center items-center h-64 space-y-4">
@@ -135,7 +130,6 @@ const Historial = () => {
     );
   }
 
-  // ⚠️ Error
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-64 space-y-4">
@@ -151,7 +145,6 @@ const Historial = () => {
     );
   }
 
-  // 🌿 Render principal
   return (
     <>
       <Panel 
@@ -163,8 +156,6 @@ const Historial = () => {
 
       <main className="p-6 lg:p-10 mt-16 bg-gradient-to-b from-green-50/40 to-emerald-50/30 dark:from-gray-900 dark:to-gray-950 min-h-screen transition-colors">
         <div className="max-w-6xl mx-auto space-y-6">
-          
-          {/* Encabezado */}
           <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
             <div>
               <h1 className="text-3xl font-bold text-green-900 dark:text-green-100">
@@ -195,7 +186,6 @@ const Historial = () => {
             )}
           </div>
 
-          {/* Tabla de historial */}
           {history.length === 0 ? (
             <div className="text-center py-20 bg-white dark:bg-gray-800/70 rounded-2xl shadow-lg border border-green-200/50">
               <MessageSquare size={48} className="mx-auto text-green-400 mb-4" />
