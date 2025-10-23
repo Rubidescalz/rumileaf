@@ -4,6 +4,7 @@ import { Send, Loader2, Sparkles, Leaf, Brain, MessageSquare, Image } from 'luci
 import Panel from '../components/Panel';
 import '../styles/animations.css';
 
+// Modelos Gemini
 const GEMINI_MODELS = [
   'gemini-2.5-flash',
   'gemini-2.0-flash',
@@ -12,6 +13,7 @@ const GEMINI_MODELS = [
   'gemini-2.5-pro'
 ];
 
+// Clave API
 const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || 'AIzaSyBkFlnHIv-rIPglK8tLgjUrcsftufuUmbI';
 const MAX_HISTORY = 6;
 const TIMEOUT_MS = 10000;
@@ -100,9 +102,16 @@ export default function Consultas() {
     }
   ]);
 
+  // 🌓 Control global del tema (modo oscuro/claro)
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'dark') root.classList.add('dark');
+    else root.classList.remove('dark');
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
   useEffect(() => { fetchGeminiChat([{ role: 'user', text: 'ping' }]).catch(() => {}); }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
-
 
   const sendMessage = async () => {
     const input = chatInput.trim();
@@ -140,7 +149,6 @@ export default function Consultas() {
         setSidebarOpen={() => {}} 
       />
 
-      {/* Contenido principal */}
       <main className="flex-1 mt-16 p-6 lg:p-10 bg-gradient-to-b from-green-50/40 to-emerald-50/30 dark:from-gray-900 dark:to-gray-950 transition-colors min-h-screen">
         <div className="max-w-7xl mx-auto space-y-8">
 
@@ -157,7 +165,7 @@ export default function Consultas() {
             </div>
           </div>
 
-          {/* Chat */}
+          {/* Chat principal */}
           <div className="bg-white/90 dark:bg-gray-900/70 backdrop-blur-sm border border-green-200/40 dark:border-green-800/40 rounded-3xl shadow-lg overflow-hidden flex flex-col h-[75vh]">
             <div className="flex-1 overflow-y-auto px-6 py-8 space-y-2 scrollbar-thin scrollbar-thumb-green-300/50 dark:scrollbar-thumb-green-700/50">
               {messages.map((m, i) => (
@@ -177,7 +185,7 @@ export default function Consultas() {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Zona de entrada */}
+            {/* Input */}
             <div className="border-t border-green-100 dark:border-green-900/40 bg-white/80 dark:bg-gray-900/70 p-5">
               {messages.length <= 1 && (
                 <div className="flex flex-wrap gap-2 mb-3">
@@ -221,7 +229,7 @@ export default function Consultas() {
                 <Leaf size={18} /> Cuidado Preventivo
               </h3>
               <p className="text-green-700 dark:text-green-300 text-sm mt-2">
-                Mantén tus plantas saludables observando síntomas tempranos y cuidando el riego y la luz. 
+                Mantén tus plantas saludables observando síntomas tempranos y cuidando el riego y la luz.
               </p>
             </div>
 
@@ -249,7 +257,6 @@ export default function Consultas() {
               </p>
             </div>
           </div>
-
         </div>
       </main>
     </>

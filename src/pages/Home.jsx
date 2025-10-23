@@ -142,7 +142,10 @@ export default function Home() {
   const [deteccionFinalizada, setDeteccionFinalizada] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [detections, setDetections] = useState([]);
-  const [analysisCount, setAnalysisCount] = useState(0);
+  const [analysisCount, setAnalysisCount] = useState(() => {
+    const saved = localStorage.getItem('analysisCount');
+    return saved ? parseInt(saved, 10) : 0;
+  });
   const [avgInferenceMs, setAvgInferenceMs] = useState(0);
   const [avgConfidence, setAvgConfidence] = useState(0);
   const [uploadedImage, setUploadedImage] = useState(null);
@@ -480,12 +483,18 @@ export default function Home() {
   };
 
   const updateStats = useCallback((ms, preds) => {
-
     setAnalysisCount(prev => {
       const newCount = prev + 1;
-      setAvgInferenceMs(prevAvg => prev === 0 ? ms : ((prevAvg * prev) + ms) / newCount);
-      const detAvg = preds && preds.length ? preds.reduce((s, d) => s + d.confidence, 0) / preds.length : 0;
-      setAvgConfidence(prevAvg => prev === 0 ? detAvg : ((prevAvg * prev) + detAvg) / newCount);
+      setAvgInferenceMs(prevAvg => {
+        if (newCount === 1) return ms;
+        return ((prevAvg * (newCount - 1)) + ms) / newCount;
+      });
+      const detAvg = preds.reduce((s, d) => s + d.confidence, 0) / preds.length;
+      setAvgConfidence(prevAvg => {
+        if (newCount === 1) return detAvg;
+        return ((prevAvg * (newCount - 1)) + detAvg) / newCount;
+      });
+      localStorage.setItem('analysisCount', newCount.toString());
       return newCount;
     });
   }, []);
@@ -499,17 +508,26 @@ export default function Home() {
     const start = performance.now();
     const predictions = await runInference(videoRef.current);
     const ms = performance.now() - start;
-    updateStats(ms, predictions);
-    setDetections(predictions);
-    drawDetections(predictions, videoRef.current);
 
-    const plagaDetectada = predictions.some(d => CLASS_NAMES[d.class] !== 'Sanas');
-    if (plagaDetectada) {
+    if (predictions.length > 0) {
+      updateStats(ms, predictions);
+      setDetections(predictions);
+      drawDetections(predictions, videoRef.current);
       setDeteccionFinalizada(true);
       setIsDetecting(false);
-      await saveAnalysis(predictions, null, 'camara', ms);
+      
+      // Capturar el frame de video como base64 (imagen original sin anotaciones)
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = videoRef.current.videoWidth;
+      tempCanvas.height = videoRef.current.videoHeight;
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.drawImage(videoRef.current, 0, 0);
+      const imageDataUrl = tempCanvas.toDataURL('image/jpeg', 0.8); // JPEG con calidad 80% para optimizar tamaño
+      
+      await saveAnalysis(predictions, imageDataUrl, 'camara', ms);
       return;
     }
+
     if (predictions.length === 0) {
       showToast('¡Ups! No pudimos identificar ninguna hoja ni plaga en esta toma. Intenta acercar la hoja, enfocar bien y asegúrate de tener buena luz. ¡Tú puedes lograrlo! 🌱✨', 'warning');
     }
@@ -559,7 +577,11 @@ export default function Home() {
       const start = performance.now();
       const predictions = await runInference(imageRef.current);
       const ms = performance.now() - start;
-      updateStats(ms, predictions);
+
+      if (predictions.length > 0) {
+        updateStats(ms, predictions);
+      }
+
       setDetections(predictions);
       drawDetections(predictions, imageRef.current);
 
@@ -767,6 +789,16 @@ export default function Home() {
     );
   };
 
+  const handleContinueAnalysis = () => {
+    setDeteccionFinalizada(false);
+    setIsDetecting(true);
+    setDetections([]);
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    }
+  };
+
   return (
     <>
       <main className="flex-1 p-6 lg:p-8">
@@ -954,6 +986,17 @@ export default function Home() {
                               </>
                             )}
                           </button>
+
+                          {/* Botón para continuar análisis */}
+                          {deteccionFinalizada && (
+                            <button
+                              onClick={handleContinueAnalysis}
+                              className="w-full mt-3 bg-blue-500 hover:bg-blue-600 text-white py-3 px-4 rounded-xl font-semibold transition-all duration-200 shadow-md hover:shadow-lg flex items-center justify-center space-x-2"
+                            >
+                              <Play size={20} />
+                              <span>Continuar Análisis</span>
+                            </button>
+                          )}
                         </>
                       ) : (
                         <>
